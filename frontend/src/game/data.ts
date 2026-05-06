@@ -311,9 +311,79 @@ export function contractTerms(kind: ContractKind): ContractTerms {
   return                  { multiplier: 1.0, description: 'Single picture — no future commitment' };
 }
 
-const TITLE_NOUNS = ['Strings', 'Echoes', 'Fragments', 'Shadows', 'Ashes', 'Tides', 'Embers', 'Whispers', 'Reckoning', 'Empire', 'Chronicle', 'Genesis', 'Revelation', 'Dawn', 'Twilight', 'Storm', 'Veil', 'Eclipse', 'Phoenix', 'Crown', 'Legacy', 'Pulse', 'Origin', 'Horizon', 'Apex', 'Inferno', 'Sanctum', 'Mirage', 'Riddle', 'Cipher', 'Monolith', 'Oracle', 'Labyrinth', 'Kingdom', 'Requiem', 'Abyss', 'Citadel', 'Dynasty', 'Paradise', 'Vanguard', 'Sovereign', 'Tempest', 'Relic', 'Paragon', 'Dominion', 'Exile', 'Chasm', 'Beacon', 'Anthem', 'Covenant', 'Prophecy', 'Sentinel', 'Omen', 'Vortex', 'Nemesis', 'Catalyst', 'Spectre', 'Aurora', 'Saga', 'Pact'];
-const TITLE_ADJ = ['Hidden', 'Lost', 'Broken', 'Forgotten', 'Eternal', 'Silent', 'Distant', 'Crimson', 'Velvet', 'Wild', 'Sacred', 'Black', 'Final', 'Last', 'First', 'Fallen', 'Burning', 'Frozen', 'Savage', 'Gilded', 'Shattered', 'Ancient', 'Forbidden', 'Midnight', 'Scarlet', 'Obsidian', 'Emerald', 'Radiant', 'Hollow', 'Infinite', 'Celestial', 'Iron', 'Stormbound', 'Untamed', 'Northern', 'Severed', 'Unwritten'];
-const TITLE_PROPER = ['Atypical', 'Strings Theory', 'Nightfall', 'Tomorrow', 'Vermillion', 'Halcyon', 'Phantom Hour', 'Solstice', 'Iron Bloom', 'The Coil', 'Riftwalker', 'Brass City', 'Moonglass', 'Seraphim', 'Paperback Ghosts', 'Low Orbit', 'Thornwood', 'The Collapsed Sky', 'Argent', 'Bluehour', 'The Amaranth Protocol', 'Copper Kingdom', 'Saltborn', 'The Luminous', 'Greylight', 'Ashfall', 'Sundown Mile', 'Marrowfield', 'Whetstone', 'Pale Horse'];
+const TITLE_NOUNS = [
+  // Original 60
+  'Strings', 'Echoes', 'Fragments', 'Shadows', 'Ashes', 'Tides', 'Embers', 'Whispers', 'Reckoning', 'Empire',
+  'Chronicle', 'Genesis', 'Revelation', 'Dawn', 'Twilight', 'Storm', 'Veil', 'Eclipse', 'Phoenix', 'Crown',
+  'Legacy', 'Pulse', 'Origin', 'Horizon', 'Apex', 'Inferno', 'Sanctum', 'Mirage', 'Riddle', 'Cipher',
+  'Monolith', 'Oracle', 'Labyrinth', 'Kingdom', 'Requiem', 'Abyss', 'Citadel', 'Dynasty', 'Paradise', 'Vanguard',
+  'Sovereign', 'Tempest', 'Relic', 'Paragon', 'Dominion', 'Exile', 'Chasm', 'Beacon', 'Anthem', 'Covenant',
+  'Prophecy', 'Sentinel', 'Omen', 'Vortex', 'Nemesis', 'Catalyst', 'Spectre', 'Aurora', 'Saga', 'Pact',
+  // Expansion (140 more)
+  'Throne', 'Compass', 'Cradle', 'Helix', 'Verdict', 'Lantern', 'Mantle', 'Spire', 'Talisman', 'Echo Chamber',
+  'Fracture', 'Catacomb', 'Solace', 'Threshold', 'Aether', 'Bastion', 'Cascade', 'Conjurer', 'Crucible', 'Diviner',
+  'Exodus', 'Foundry', 'Gauntlet', 'Glacier', 'Harbinger', 'Heretic', 'Iron Heart', 'Junction', 'Keystone', 'Lighthouse',
+  'Mausoleum', 'Mosaic', 'Nightfall', 'Obelisk', 'Outlier', 'Overture', 'Paradox', 'Pinnacle', 'Pioneer', 'Promenade',
+  'Quarry', 'Reaper', 'Reckoner', 'Refrain', 'Renegade', 'Rift', 'Salvage', 'Scaffold', 'Sermon', 'Shroud',
+  'Skyline', 'Soul Forge', 'Specter', 'Spindle', 'Standard', 'Stratagem', 'Summit', 'Surge', 'Symphony', 'Tableau',
+  'Terminus', 'Threshold', 'Torchbearer', 'Trajectory', 'Trinity', 'Tundra', 'Undertow', 'Verge', 'Vessel', 'Vigil',
+  'Wanderer', 'Watchtower', 'Wayfarer', 'Winter', 'Wraith', 'Zenith', 'Anchor', 'Architect', 'Argonaut', 'Armada',
+  'Aviator', 'Banner', 'Beholder', 'Blueprint', 'Borealis', 'Brigade', 'Caravan', 'Carillon', 'Castaway', 'Champion',
+  'Cinder', 'Clockwork', 'Cobalt', 'Coda', 'Confessor', 'Constellation', 'Corsair', 'Courier', 'Crescendo', 'Crusader',
+  'Cyclone', 'Daydream', 'Decree', 'Deluge', 'Despot', 'Diviner', 'Drifter', 'Dynamo', 'Edict', 'Effigy',
+  'Elegy', 'Ember Path', 'Emissary', 'Endgame', 'Epitaph', 'Equinox', 'Estuary', 'Falcon', 'Fanfare', 'Firebrand',
+  'Flagship', 'Folklore', 'Forager', 'Frontier', 'Fugue', 'Galleon', 'Gambit', 'Gargoyle', 'Glaive', 'Gloaming',
+  'Heir', 'Heretic Star', 'Hourglass', 'Hymn', 'Iconoclast', 'Insurgent', 'Inquisitor', 'Interloper', 'Juggernaut', 'Kismet',
+];
+const TITLE_ADJ = [
+  // Original 37
+  'Hidden', 'Lost', 'Broken', 'Forgotten', 'Eternal', 'Silent', 'Distant', 'Crimson', 'Velvet', 'Wild',
+  'Sacred', 'Black', 'Final', 'Last', 'First', 'Fallen', 'Burning', 'Frozen', 'Savage', 'Gilded',
+  'Shattered', 'Ancient', 'Forbidden', 'Midnight', 'Scarlet', 'Obsidian', 'Emerald', 'Radiant', 'Hollow', 'Infinite',
+  'Celestial', 'Iron', 'Stormbound', 'Untamed', 'Northern', 'Severed', 'Unwritten',
+  // Expansion (165 more)
+  'Wandering', 'Restless', 'Brilliant', 'Gleaming', 'Shimmering', 'Howling', 'Roaring', 'Whispering', 'Singing', 'Dreaming',
+  'Waking', 'Sleeping', 'Rising', 'Falling', 'Drifting', 'Splintered', 'Cracked', 'Mended', 'Forged', 'Tempered',
+  'Hammered', 'Polished', 'Tarnished', 'Battered', 'Bruised', 'Scarred', 'Marked', 'Veiled', 'Cloaked', 'Hooded',
+  'Masked', 'Naked', 'Bare', 'Silver', 'Golden', 'Bronze', 'Copper', 'Pearl', 'Ivory', 'Onyx',
+  'Sapphire', 'Ruby', 'Amber', 'Jade', 'Cobalt', 'Indigo', 'Crimson Tide', 'Violet', 'Smoldering', 'Smoking',
+  'Quiet', 'Loud', 'Soft', 'Hard', 'Sharp', 'Dull', 'Heavy', 'Light', 'Lithe', 'Weary',
+  'Restive', 'Hungry', 'Thirsty', 'Empty', 'Hollow Hearted', 'Bountiful', 'Fertile', 'Barren', 'Cursed', 'Blessed',
+  'Holy', 'Profane', 'Devout', 'Faithful', 'Faithless', 'Promised', 'Pledged', 'Sworn', 'Bound', 'Unbound',
+  'Chained', 'Unchained', 'Wild Hearted', 'Tame', 'Feral', 'Civilized', 'Cultured', 'Untold', 'Unspoken', 'Unseen',
+  'Unheard', 'Wakeful', 'Slumbering', 'Sworn-In', 'Outcast', 'Banished', 'Exiled', 'Returning', 'Awakened', 'Reborn',
+  'Renewed', 'Revived', 'Restored', 'Risen', 'Sundered', 'Severing', 'Mending', 'Wounded', 'Healing', 'Bleeding',
+  'Drowning', 'Soaring', 'Falling Star', 'Distant Star', 'Northern Light', 'Southern', 'Eastern', 'Western', 'Highland', 'Lowland',
+  'Coastal', 'Inland', 'Polar', 'Tropical', 'Arctic', 'Desert', 'Mountain', 'River', 'Forest', 'Ocean',
+  'Storm-Wracked', 'Sun-Drenched', 'Moonlit', 'Starlit', 'Firelit', 'Candlelit', 'Lamplit', 'Twilit', 'Daylit', 'Nightlit',
+  'Foreboding', 'Foretold', 'Foregone', 'Underground', 'Overgrown', 'Overlooked', 'Underrated', 'Whispered', 'Howled', 'Sung',
+  'Spoken', 'Written', 'Inscribed', 'Carved', 'Etched', 'Painted', 'Stained', 'Dyed', 'Woven', 'Knitted',
+  'Threaded', 'Strung', 'Tangled', 'Knotted', 'Loose', 'Tight', 'Bound Together', 'Torn', 'Mended Heart',
+];
+const TITLE_PROPER = [
+  // Original 30
+  'Atypical', 'Strings Theory', 'Nightfall', 'Tomorrow', 'Vermillion', 'Halcyon', 'Phantom Hour', 'Solstice', 'Iron Bloom', 'The Coil',
+  'Riftwalker', 'Brass City', 'Moonglass', 'Seraphim', 'Paperback Ghosts', 'Low Orbit', 'Thornwood', 'The Collapsed Sky', 'Argent', 'Bluehour',
+  'The Amaranth Protocol', 'Copper Kingdom', 'Saltborn', 'The Luminous', 'Greylight', 'Ashfall', 'Sundown Mile', 'Marrowfield', 'Whetstone', 'Pale Horse',
+  // Expansion (170 more)
+  'Tidewatcher', 'Glasshouse', 'Cinderhall', 'The Vaulted Sky', 'Westering', 'The Hourwatch', 'Cradlestone', 'Brightspire', 'The Mason\'s Hand', 'The Hollow Bell',
+  'Saltwood', 'Thornglass', 'The Pale Year', 'Roosthaven', 'Lowbridge', 'The Ironwood', 'Owl\'s Reach', 'Driftmark', 'Brackenfell', 'Stormveil',
+  'Hawkmoon', 'The Ghostlight', 'Coppertongue', 'Quietfall', 'The Last Cartographer', 'Foxglove', 'The Silver Bridge', 'Briarwell', 'Westwatch', 'The Velvet Hour',
+  'Northwake', 'The Long Sleep', 'Crowstep', 'Slate & Silver', 'The Borrowed Sun', 'Goldfinch', 'The Atlas Engine', 'Penumbra', 'Mirrorfall', 'The Bone Almanac',
+  'Wraithwood', 'Lanternlight', 'The Furnace', 'Songbird', 'The Compass Stone', 'Ravenmoor', 'The Salt Keep', 'Foxwater', 'The Ember Heir', 'Stoneheart',
+  'The Field of Hours', 'Quietwater', 'The Glass Garden', 'Wildmark', 'The Iron Dial', 'Hollowmere', 'The Pale Inheritance', 'Brightwater', 'The Velvet Ruin', 'Marrowstone',
+  'The Lantern Path', 'Sundermast', 'The Orchard of Hours', 'Briarcourt', 'The Hourless', 'Greyford', 'Stormhold', 'The Hollow Crown', 'Tidefall', 'The Watchman\'s Year',
+  'Glasstown', 'The Salt Letter', 'Rookwood', 'The Burnt Atlas', 'Thistledown', 'The Pale Sermon', 'Owlwatch', 'The Lantern\'s Wake', 'Foxbridge', 'The Whispering House',
+  'The Quiet Empire', 'Stormgate', 'The Borrowed Year', 'Pinegrave', 'The Silver Ledger', 'Hawkstone', 'The Cinder Field', 'Driftbridge', 'The Mended Sky', 'Wolfhour',
+  'The Velvet Ledger', 'Ashbourne', 'The Mirror House', 'Silverthorn', 'The Hollow Choir', 'Lowfall', 'The Iron Almanac', 'Briarmoor', 'The Quiet Almanac', 'Crowford',
+  'The Pale Cartographer', 'Stormfeld', 'The Mended Year', 'Whetwood', 'The Lantern Road', 'Foxstead', 'The Hollow Atlas', 'Marrowbrook', 'The Velvet Atlas', 'Wraithfall',
+  'The Long Dial', 'Sundermoor', 'The Iron Sermon', 'Pinehollow', 'The Quiet Heir', 'Hawkmere', 'The Borrowed Crown', 'Driftmoor', 'The Mended Atlas', 'Wolfmoor',
+  'The Velvet Heir', 'Ashfeld', 'The Mirror Atlas', 'Silvermere', 'The Hollow Heir', 'Lowmere', 'The Iron Heir', 'Briarbrook', 'The Quiet Sermon', 'Crowmere',
+  'The Pale Heir', 'Stormbrook', 'The Mended Sermon', 'Whetbrook', 'The Lantern Heir', 'Foxmere', 'The Hollow Sermon', 'Marrowfield Hall', 'The Velvet Sermon', 'Wraithbrook',
+  'The Long Atlas', 'Sundermere', 'The Iron Atlas', 'Pinemere', 'The Quiet Atlas', 'Hawkbrook', 'The Borrowed Atlas', 'Driftmere', 'The Mended Crown', 'Wolfbrook',
+  'The Velvet Crown', 'Ashmere', 'The Mirror Crown', 'Silverbrook', 'The Hollow Crown II', 'Lowbrook', 'The Iron Crown', 'Briarmere', 'The Quiet Crown', 'Crowbrook',
+  'The Pale Crown', 'Stormmere', 'The Mended Heir',
+];
 
 // Hero character names for franchises
 export const CHARACTER_FIRSTS = ['Kade', 'Zara', 'Ronan', 'Viv', 'Orion', 'Lux', 'Atlas', 'Nyx', 'Sable', 'Kai', 'Juno', 'Reya', 'Cass', 'Rook', 'Nova', 'Vega', 'Knox', 'Briar', 'Cove', 'Phoenix', 'Indigo', 'Storm'];
