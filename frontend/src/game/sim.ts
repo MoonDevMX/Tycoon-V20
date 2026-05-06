@@ -193,10 +193,11 @@ export function newGame(playerName: string, logoIdx: number): GameState {
     };
   });
 
+  const START_YEAR = 11; // 10 years of industry history are seeded before Day 1
   return seedHistory({
-    initialized: true, week: 1, year: 1, player, rivals,
+    initialized: true, week: 1, year: START_YEAR, player, rivals,
     movies: [], talents, franchises, audience, relationships, streamingServices,
-    newsLog: [{ week: 1, year: 1, text: `${player.name} opens its doors. The lights are on across 15 studios industry-wide. ${streamingServices.length} streaming rivals are already broadcasting.` }],
+    newsLog: [{ week: 1, year: START_YEAR, text: `${player.name} opens its doors. The lights are on across 15 studios industry-wide. ${streamingServices.length} streaming rivals are already broadcasting.` }],
   });
 }
 

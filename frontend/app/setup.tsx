@@ -37,7 +37,7 @@ export default function Setup() {
   const startWithCash = async () => {
     const fresh = (await import('../src/game/sim')).newGame(name.trim() || 'Luna Productions', logoIdx);
     fresh.player.cash = CASH_OPTIONS[cashIdx].value;
-    fresh.newsLog.unshift({ week: 1, year: 1, text: `${fresh.player.name} launches as a ${CASH_OPTIONS[cashIdx].tag} with ${CASH_OPTIONS[cashIdx].label} treasury.` });
+    fresh.newsLog.unshift({ week: 1, year: fresh.year, text: `${fresh.player.name} launches as a ${CASH_OPTIONS[cashIdx].tag} with ${CASH_OPTIONS[cashIdx].label} treasury.` });
     setState(fresh);
     router.replace('/dashboard');
   };
