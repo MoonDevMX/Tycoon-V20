@@ -320,18 +320,44 @@ export const CHARACTER_FIRSTS = ['Kade', 'Zara', 'Ronan', 'Viv', 'Orion', 'Lux',
 export const CHARACTER_LASTS = ['Vale', 'Crow', 'Steele', 'Ash', 'Stone', 'Kane', 'Wolfe', 'Quinn', 'Fox', 'Rook', 'Storm', 'Hollow', 'North', 'Vane', 'Sterling', 'Blake', 'Rivers', 'Reign', 'Voss', 'Kestrel'];
 export function genCharacterName(): string { return `${pick(CHARACTER_FIRSTS)} ${pick(CHARACTER_LASTS)}`; }
 
-export function genFranchiseName(): string {
-  if (Math.random() < 0.45) return pick(TITLE_PROPER);
-  if (Math.random() < 0.5) return `${pick(TITLE_ADJ)} ${pick(TITLE_NOUNS)}`;
-  return pick(TITLE_NOUNS);
+export function genFranchiseName(existingNames?: Set<string>): string {
+  const tryOne = (): string => {
+    if (Math.random() < 0.45) return pick(TITLE_PROPER);
+    if (Math.random() < 0.5) return `${pick(TITLE_ADJ)} ${pick(TITLE_NOUNS)}`;
+    return pick(TITLE_NOUNS);
+  };
+  if (!existingNames || !existingNames.size) return tryOne();
+  const lower = (s: string) => s.toLowerCase();
+  const taken = new Set([...existingNames].map(lower));
+  for (let i = 0; i < 25; i++) {
+    const name = tryOne();
+    if (!taken.has(lower(name))) return name;
+  }
+  // Last-resort fallback: append a roman-numeral-style suffix to force uniqueness without sequel implication.
+  const base = tryOne();
+  const suffix = ['Reborn', 'Resurgence', 'Rising', 'Awakened', 'Returns', 'Reforged', 'Renewed', 'Revived'];
+  for (const s of suffix) {
+    const candidate = `${base} ${s}`;
+    if (!taken.has(lower(candidate))) return candidate;
+  }
+  return `${base} ${Math.floor(Math.random() * 9000 + 1000)}`;
 }
 
-export function genTitleSubtitle(franchiseName: string, brand: string, sequelNum: number): string {
+export function genTitleSubtitle(franchiseName: string, brand: string, sequelNum: number, existingTitles?: Set<string>): string {
   if (brand === 'Original') return franchiseName;
   if (brand === 'Sequel') return `${franchiseName} ${sequelNum}`;
   if (brand === 'Prequel') return `${franchiseName}: Origins`;
-  if (brand === 'Spinoff') return `${franchiseName}: ${pick(TITLE_NOUNS)}`;
-  return `${franchiseName}: ${pick(TITLE_ADJ)} Crossover`;
+  // Spinoff / Crossover use a random NOUN/ADJ — uniquify across the world.
+  const taken = existingTitles ? new Set([...existingTitles].map(s => s.toLowerCase())) : null;
+  for (let i = 0; i < 20; i++) {
+    const candidate = brand === 'Spinoff'
+      ? `${franchiseName}: ${pick(TITLE_NOUNS)}`
+      : `${franchiseName}: ${pick(TITLE_ADJ)} Crossover`;
+    if (!taken || !taken.has(candidate.toLowerCase())) return candidate;
+  }
+  return brand === 'Spinoff'
+    ? `${franchiseName}: ${pick(TITLE_ADJ)} ${pick(TITLE_NOUNS)}`
+    : `${franchiseName}: The ${pick(TITLE_NOUNS)} Crossover`;
 }
 
 const PLOT_TEMPLATES = [

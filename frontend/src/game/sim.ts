@@ -233,12 +233,15 @@ export function newGame(playerName: string, logoIdx: number): GameState {
   const talents: Talent[] = generateBalancedTalentPool();
 
   const franchises: Franchise[] = [];
+  const usedFranchiseNames = new Set<string>();
   rivals.forEach(r => {
     const n = randInt(2, 4);
     for (let i = 0; i < n; i++) {
       const g = pick(GENRES);
+      const fname = genFranchiseName(usedFranchiseNames);
+      usedFranchiseNames.add(fname);
       franchises.push({
-        id: uid('f_'), name: genFranchiseName(), studioId: r.id,
+        id: uid('f_'), name: fname, studioId: r.id,
         movieIds: [], popularity: randInt(40, 90),
         iconKey: GENRE_ICON[g].icon, iconBg: GENRE_ICON[g].bg,
         lastReleasedWeek: 0, lastReleasedYear: 0,
@@ -305,6 +308,7 @@ export function newGame(playerName: string, logoIdx: number): GameState {
 // a mature industry rather than an empty one.
 function seedHistory(s: GameState): GameState {
   const movies: Movie[] = [];
+  const usedTitles = new Set<string>();
   const HISTORY_YEARS = 10;
   for (const r of s.rivals) {
     const myFranchises = s.franchises.filter(f => f.studioId === r.id);
@@ -314,7 +318,7 @@ function seedHistory(s: GameState): GameState {
       const yearOffset = randInt(-(HISTORY_YEARS - 1), -1);
       const yr = s.year + yearOffset;
       const wk = randInt(1, WEEKS_PER_YEAR);
-      const m = makeHistoricMovie(s, r.id, undefined, wk, yr);
+      const m = makeHistoricMovie(s, r.id, undefined, wk, yr, usedTitles);
       if (m) { movies.push(m); }
     }
     // Franchise titles: 1-3 movies per franchise
@@ -327,9 +331,11 @@ function seedHistory(s: GameState): GameState {
       for (let i = 0; i < slots.length; i++) {
         const slot = slots[i];
         const yr = s.year + slot.yearOffset;
-        const m = makeHistoricMovie(s, r.id, fr.id, slot.week, yr);
+        // First film = Original; subsequent = Sequel (most common) or Spinoff
+        const brand: 'Original' | 'Sequel' | 'Spinoff' = i === 0 ? 'Original' : (Math.random() < 0.7 ? 'Sequel' : 'Spinoff');
+        const sequelNum = brand === 'Sequel' ? i + 1 : 1;
+        const m = makeHistoricMovie(s, r.id, fr.id, slot.week, yr, usedTitles, { brand, sequelNum });
         if (m) {
-          m.brand = i === 0 ? 'Original' : (Math.random() < 0.7 ? 'Sequel' : 'Spinoff');
           fr.movieIds.push(m.id);
           fr.lastReleasedWeek = slot.week;
           fr.lastReleasedYear = yr;
@@ -367,7 +373,7 @@ function seedHistory(s: GameState): GameState {
   return { ...s, movies, streamingServices: seededServices, newsLog: news.slice(0, 100) };
 }
 
-function makeHistoricMovie(s: GameState, studioId: string, franchiseId: string | undefined, releaseWeek: number, releaseYear: number): Movie | null {
+function makeHistoricMovie(s: GameState, studioId: string, franchiseId: string | undefined, releaseWeek: number, releaseYear: number, usedTitles?: Set<string>, sequelInfo?: { brand: 'Original' | 'Sequel' | 'Spinoff'; sequelNum: number }): Movie | null {
   const genre = pick(GENRES);
   const wr = pick(s.talents.filter(t => t.role === 'writer'));
   const dir = pick(s.talents.filter(t => t.role === 'director'));
@@ -380,11 +386,24 @@ function makeHistoricMovie(s: GameState, studioId: string, franchiseId: string |
   const baseBOM = budget * (0.6 + (criticScore - 50) / 60) * (0.7 + Math.random() * 1.4);
   const boB = Math.max(0.02, +(baseBOM / 1000).toFixed(3));
   const id = uid('mh_');
+  // Title generation: if franchise-bound, derive from franchise + brand to keep continuity unique;
+  // else use a unique standalone title.
+  let title: string;
+  let brand: Movie['brand'] = 'Original';
+  if (franchiseId) {
+    const fr = s.franchises.find(f => f.id === franchiseId);
+    const fname = fr?.name || genFranchiseName(usedTitles);
+    brand = sequelInfo?.brand || 'Original';
+    title = genTitleSubtitle(fname, brand, sequelInfo?.sequelNum || 1, usedTitles);
+  } else {
+    title = genFranchiseName(usedTitles);
+  }
+  if (usedTitles) usedTitles.add(title);
   const movie: Movie = {
-    id, title: genFranchiseName(), type: genre as any, genre,
+    id, title, type: genre as any, genre,
     plotArc: pick(['Man in a Hole', 'Icarus', 'Cinderella'] as any),
     rating: pick(['PG-13', 'R', 'PG'] as any), runtime: randInt(85, 145),
-    brand: franchiseId ? 'Original' : 'Original', franchiseId,
+    brand, franchiseId,
     studioId, writerId: wr.id, directorId: dir.id,
     cast: [
       { talentId: actor.id, role: 'lead_actor', dealType: 'middle', contractKind: 'single', salary: actor.salary, boPercent: 1 },
@@ -472,7 +491,8 @@ export function createMovie(state: GameState, args: CreateMovieArgs): { state: G
   let franchiseName: string | undefined;
   let sequelNum = 1;
   if (args.brand === 'Original') {
-    const fname = (args.franchiseName?.trim()) || genFranchiseName();
+    const usedFr = new Set(state.franchises.map(f => f.name));
+    const fname = (args.franchiseName?.trim()) || genFranchiseName(usedFr);
     const newFr: Franchise = {
       id: uid('f_'), name: fname, studioId: player.id, movieIds: [],
       popularity: 30, iconKey: GENRE_ICON[args.genre].icon, iconBg: GENRE_ICON[args.genre].bg,
@@ -512,7 +532,8 @@ export function createMovie(state: GameState, args: CreateMovieArgs): { state: G
     attachedIP = { id: lic.id, ipId: lic.ipId };
   }
 
-  const title = (args.title?.trim()) || genTitleSubtitle(franchiseName!, args.brand, sequelNum);
+  const usedMovieTitles = new Set(state.movies.map(m => m.title));
+  const title = (args.title?.trim()) || genTitleSubtitle(franchiseName!, args.brand, sequelNum, usedMovieTitles);
   const movie: Movie = {
     id: uid('m_'), title, type: args.type, genre: args.genre, plotArc: args.plotArc,
     rating: args.rating, runtime: args.runtime, brand: args.brand,
@@ -1056,8 +1077,9 @@ function aiProduceMovies(state: GameState, currentWeek: number, currentYear: num
       const fr = franchises.find(f => f.id === franchiseId)!;
       franchiseName = fr.name;
     } else {
-      // create new franchise
-      const fname = genFranchiseName();
+      // create new franchise — uniquify against world franchise + movie names
+      const usedFr = new Set([...franchises.map(f => f.name), ...movies.map(m => m.title)]);
+      const fname = genFranchiseName(usedFr);
       const newFr: Franchise = {
         id: uid('f_'), name: fname, studioId: r.id, movieIds: [],
         popularity: randInt(20, 50), iconKey: GENRE_ICON[genre].icon, iconBg: GENRE_ICON[genre].bg,
@@ -1067,7 +1089,8 @@ function aiProduceMovies(state: GameState, currentWeek: number, currentYear: num
       franchiseId = newFr.id; franchiseName = fname;
     }
     const sequelNum = (franchises.find(f => f.id === franchiseId)?.movieIds.length || 0) + 1;
-    const title = genTitleSubtitle(franchiseName, brand, sequelNum);
+    const usedMovieTitles = new Set(movies.map(m => m.title));
+    const title = genTitleSubtitle(franchiseName, brand, sequelNum, usedMovieTitles);
     // TIER-BASED BUDGET: high-rating rivals fund $200M+ tentpoles (so Big Picture awards trigger).
     const aiBudget = aiBudgetForRating(r.rating);
     const movie: Movie = {
@@ -2458,7 +2481,8 @@ function spawnFestivalIfDue(state: GameState): GameState {
     const actress = availablePool.find(t => t.role === 'actress') || state.talents.find(t => t.role === 'actress');
     if (!wr || !dir || !actor || !actress) continue;
     const budget = randInt(15, 90);
-    const fname = genFranchiseName();
+    const usedTitles = new Set([...state.movies.map(m => m.title), ...state.franchises.map(f => f.name)]);
+    const fname = genFranchiseName(usedTitles);
     // The AI studio owns this already-made film.
     const movie: Movie = {
       id: uid('mfest_'), title: fname, type: genre as any, genre,
