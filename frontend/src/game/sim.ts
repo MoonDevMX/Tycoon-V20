@@ -284,7 +284,7 @@ export function newGame(playerName: string, logoIdx: number): GameState {
 
   const START_YEAR = 11; // 10 years of industry history are seeded before Day 1
   const ipSeed = seedExternalLicensors();
-  return seedHistory({
+  const seeded = seedHistory({
     initialized: true, week: 1, year: START_YEAR, player, rivals,
     movies: [], talents, franchises, audience, relationships, streamingServices,
     newsLog: [{ week: 1, year: START_YEAR, text: `${player.name} opens its doors. The lights are on across 15 studios industry-wide. ${streamingServices.length} streaming rivals are already broadcasting.` }],
@@ -295,6 +295,8 @@ export function newGame(playerName: string, logoIdx: number): GameState {
     outboundIPListings: [],
     outboundIPBids: [],
   });
+  // Seed 1 starter inbound IP offer so the player sees the External IP feature on day 1.
+  return generateInboundIPOffer(seeded);
 }
 
 // Pre-populate ~10 in-game years of AI-released movies so the world feels alive on Day 1.

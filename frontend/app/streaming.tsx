@@ -75,7 +75,7 @@ export default function StreamingHub() {
               <Bullet text="Subscribers grow weekly based on catalog & reputation" />
               <Bullet text="One-time launch cost: $200M per service" />
             </View>
-            <TouchableOpacity style={s.cta} onPress={() => router.push('/streaming/launch')} testID="launch-btn">
+            <TouchableOpacity style={s.cta} onPress={() => router.push('/streaming/launch')} testID="launch-service-btn">
               <MaterialCommunityIcons name="rocket-launch" size={20} color={T.cardDark} />
               <Text style={s.ctaTxt}>Launch Streaming Service</Text>
             </TouchableOpacity>

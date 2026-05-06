@@ -1,0 +1,32 @@
+{
+  "summary": "ITERATION 2 — V17 retest after main agent fixes. Both action items from iter1 verified working: (1) newGame seeds 1 inbound IP offer at game start (sim.ts L299 returns generateInboundIPOffer(seeded)) and the offer 'Throne of Embers'/'Mighty Mechs' appears in /external-ip Inbound (1) immediately on Jan W1; (2) testID 'launch-service-btn' is present on streaming.tsx L78 and routes correctly to /streaming/launch. End-to-end flows exercised in browser: COUNTER modal opens with all c-fee/c-bo/c-merch/c-years/c-packs/c-excl/c-sub + submit-counter testIDs and submission updates state. ACCEPT path moves the offer from Inbound (1→0) into My Licenses (0→1) with correct fields (BO%, Merch%, Term, Packs). Outbound page loads gracefully (shows 'You don't own any franchises yet' instead of crashing). Streaming launch flow works: launch-service-btn → svc-name-input → confirm-launch creates the service. Streaming detail (/streaming/[id]) shows default Basic/Standard/Premium tiers and the player-service navigation works (via JS click — see minor issue below). Tier-picker testIDs (toggle-add-catalog, add-quick-all, add-quick-top, add-tier-{id}, confirm-add-tiers, cancel-add-tiers, edit-tier-access-{movieId}, edit-tier-{id}, save-tier-access) verified by source inspection in app/streaming/[id].tsx — gated on having released own movies which requires multi-week sim, skipped per request. Rivals catalog-pack exclusivity wiring (pick-exclusive-toggle → proposeBulkCatalogLicense({exclusivity}) → BulkCatalogOffer.exclusivity) verified in source.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "app/streaming.tsx player service card", "issue": "testID 'player-service-{svcId}' is rendered TWICE on the streaming page (once in the 'Your Services' hero panel and once in the Industry Leaderboard list). Caused Playwright strict-mode violation; both elements share identical testID. Functionally the click works (one is hidden via overflow), but for testing automation the testID should be unique or scoped (e.g. 'hero-service-{id}' vs 'leaderboard-service-{id}').", "testID": "player-service-{svcId}", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_2.json"],
+  "action_items": [
+    "OPTIONAL: Disambiguate duplicate testID 'player-service-{svcId}' on app/streaming.tsx (L39 hero card vs L96 leaderboard row). Use distinct testIDs so test automation can target each unambiguously.",
+    "OPTIONAL: Main agent self-test the full streaming tier-picker flow by creating a movie via /create-movie and ticking ~6 weeks until released, then exercising toggle-add-catalog → add-quick-all/add-quick-top → add-tier-{tierId} → confirm-add-tiers → edit-tier-access-{movieId} → save-tier-access. All testIDs verified present in code.",
+    "OPTIONAL: Self-test rivals catalog-pack exclusivity by navigating /rivals → relations → propose bulk catalog with pick-exclusive-toggle ON, then verify offer object has exclusivity:true (sim.ts proposeBulkCatalogLicense correctly forwards the flag and the news log includes 'EXCLUSIVE'). Wiring is correct per source review."
+  ],
+  "critical_code_review_comments": [
+    "sim.ts L299 — newGame correctly returns generateInboundIPOffer(seeded), spawning 1 starter inbound IP offer at week 1. Verified at runtime: 'Inbound (1)' badge present immediately after START STUDIO.",
+    "streaming.tsx L78 — launch-service-btn testID added on the empty-state CTA; verified tappable and navigates to /streaming/launch.",
+    "external-ip.tsx — counter modal contains all expected testIDs (c-fee/c-bo/c-merch/c-years/c-packs/c-excl/c-sub, submit-counter); accept-ip-* and tab-mine integration confirmed (Inbound 1→0, My Licenses 0→1).",
+    "streaming/[id].tsx — defaultTiers Basic($9.99)/Standard($14.99)/Premium($19.99) render correctly. All tier-picker testIDs (add-quick-all L496, add-quick-top L504, add-tier-{id} L518, confirm-add-tiers L534, cancel-add-tiers L525, edit-tier-access-{movieId} L402, edit-tier-{id} L559, save-tier-access L574) present.",
+    "rivals.tsx L272 pick-exclusive-toggle and L293 pick-propose-btn → proposeBulkCatalogLicense({exclusivity}) → BulkCatalogOffer with exclusivity:!!args.exclusivity (sim.ts L2205). News log message correctly appends '(EXCLUSIVE)' when flag is true."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped per request)", "frontend": "100% on requested flows — all 9 test items verified or confirmed via source for gated flows"},
+  "seed_data_creation": "Multiple fresh AsyncStorage saves created during testing (TestStudio2, TestStudio3, TestS4, TS5, TS6, TS7) — each verified the seeded inbound IP offer.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All V17 features wired correctly. To reach the streaming tier-picker UI in automation: launch a service (svc-name-input → confirm-launch), then on /streaming/[id] you need at least 1 released player-owned movie before toggle-add-catalog appears. To get a released movie: /create-movie → fill required fields → schedule release → simulate ~5-6 weeks via sim-week-btn. The 'License External Titles' picker (toggle-license-picker) is always visible and uses a different code path. For rivals exclusivity: /rivals → tap a rival with positive relations → propose bulk catalog license → toggle pick-exclusive-toggle → pick-propose-btn. The duplicated player-service-{id} testID across hero+leaderboard is a known minor issue — use .first or scoped queries in tests.",
+  "rca_of_issue": "Both iter1 RCAs resolved. The seeding of 1 starter inbound IP offer at game start (sim.ts newGame) makes the COUNTER/ACCEPT/REJECT UI immediately reachable for testing & onboarding. The launch-service-btn testID makes the streaming launch CTA tappable in automation."
+}
