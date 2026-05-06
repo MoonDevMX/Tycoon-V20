@@ -18,6 +18,11 @@ export default function Rivals() {
   const [bulkMovies, setBulkMovies] = useState('5');
   const [bulkYears, setBulkYears] = useState('2');
   const [activeCatalogId, setActiveCatalogId] = useState<string | null>(null);
+  // Bulk Catalog Pack picker (existing rival films, must be ≥2 years old)
+  const [pickRivalId, setPickRivalId] = useState<string | null>(null);
+  const [pickSvcId, setPickSvcId] = useState<string | null>(null);
+  const [pickYears, setPickYears] = useState('3');
+  const [pickedMovieIds, setPickedMovieIds] = useState<string[]>([]);
   if (!state) return null;
 
   const playerSvcs = (state.streamingServices || []).filter(svc => svc.studioId === state.player.id);
@@ -91,28 +96,31 @@ export default function Rivals() {
               </TouchableOpacity>
 
               {/* Bulk License action */}
-              <TouchableOpacity style={s.bulkBtn} onPress={() => openBulk(r.id)} testID={`bulk-license-${r.id}`}>
+              <TouchableOpacity
+                style={[s.bulkBtn, playerSvcs.length === 0 && { opacity: 0.55, borderStyle: 'dashed' }]}
+                onPress={() => openBulk(r.id)}
+                testID={`bulk-license-${r.id}`}
+              >
                 <MaterialCommunityIcons name="cash-multiple" size={16} color={T.yellow} />
-                <Text style={s.bulkTxt}>Bulk-License Future Releases</Text>
+                <Text style={s.bulkTxt}>Bulk-License Future Releases{playerSvcs.length === 0 ? ' (need streaming svc)' : ''}</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[s.bulkBtn, { borderColor: T.magenta, marginTop: 6 }]}
+                style={[s.bulkBtn, { borderColor: T.magenta, marginTop: 6 }, playerSvcs.length === 0 && { opacity: 0.55, borderStyle: 'dashed' }]}
                 onPress={() => {
-                  if (playerSvcs.length === 0) { uiAlert('No Streaming Service', 'Launch your own streaming service first.'); return; }
-                  const released = state.movies.filter(m => m.studioId === r.id && m.status === 'released');
-                  if (released.length < 3) { uiAlert('Not Enough Catalog', `${r.name} has too few released titles for a bulk pack.`); return; }
-                  const picks = [...released].sort((a, b) => (b.releaseYear * 100 + b.releaseWeek) - (a.releaseYear * 100 + a.releaseWeek)).slice(0, Math.min(5, released.length));
-                  const years = 3;
-                  const fair = quoteBulkCatalogValue(picks.map(m => m.id), years);
-                  const opening = +(fair * 0.85).toFixed(3);
-                  const result = proposeBulkCatalogLicense({ toRivalStudioId: r.id, movieIds: picks.map(m => m.id), priceB: opening, years, serviceId: playerSvcs[0].id });
-                  if (result.error) { uiAlert('Failed', result.error); return; }
-                  if (result.offerId) setActiveCatalogId(result.offerId);
+                  if (playerSvcs.length === 0) { uiAlert('No Streaming Service', 'Launch your own streaming service first to license rival catalogs.'); return; }
+                  const eligible = state.movies.filter(m => m.studioId === r.id && m.status === 'released' && (state.year - m.releaseYear) >= 2);
+                  if (eligible.length < 1) { uiAlert('Not Enough Catalog', `${r.name} has no films released ≥2 years ago. Catalog packs require older titles.`); return; }
+                  // Pre-select up to 5 most recent eligible titles
+                  const seed = [...eligible].sort((a, b) => (b.releaseYear * 100 + b.releaseWeek) - (a.releaseYear * 100 + a.releaseWeek)).slice(0, Math.min(5, eligible.length)).map(m => m.id);
+                  setPickRivalId(r.id);
+                  setPickSvcId(playerSvcs[0].id);
+                  setPickYears('3');
+                  setPickedMovieIds(seed);
                 }}
                 testID={`bulk-catalog-${r.id}`}
               >
                 <MaterialCommunityIcons name="package-variant" size={16} color={T.magenta} />
-                <Text style={[s.bulkTxt, { color: T.magenta }]}>Bulk Catalog Pack (Existing Films)</Text>
+                <Text style={[s.bulkTxt, { color: T.magenta }]}>Bulk Catalog Pack (Existing Films, ≥2y)</Text>
               </TouchableOpacity>
               {activeBulks.length > 0 && activeBulks.map((ab, i) => (
                 <View key={i} style={s.activeBulkRow}>
@@ -183,6 +191,97 @@ export default function Rivals() {
                   <Text style={s.signTxt}>SIGN DEAL</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={s.cancelBtn} onPress={() => setBulkRivalId(null)}>
+                  <Text style={s.cancelTxt}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          );
+        })() : <View />}
+      </Modal>
+
+      {/* Bulk Catalog Pack — pick movies modal (player chooses which rival catalog films to license) */}
+      <Modal visible={!!pickRivalId} transparent animationType="slide" onRequestClose={() => setPickRivalId(null)}>
+        {pickRivalId ? (() => {
+          const rival = state.rivals.find(r => r.id === pickRivalId);
+          if (!rival) return <View />;
+          const eligible = state.movies.filter(m => m.studioId === rival.id && m.status === 'released' && (state.year - m.releaseYear) >= 2)
+            .sort((a, b) => (b.releaseYear * 100 + b.releaseWeek) - (a.releaseYear * 100 + a.releaseWeek));
+          const yrs = parseInt(pickYears, 10) || 0;
+          const fair = pickedMovieIds.length > 0 && yrs > 0 ? quoteBulkCatalogValue(pickedMovieIds, yrs) : 0;
+          const opening = +(fair * 0.85).toFixed(3);
+          const cashB = state.player.cash;
+          return (
+            <View style={s.modalBg}>
+              <View style={[s.modalCard, { maxHeight: '90%' }]}>
+                <Text style={s.modalTitle}>Catalog Pack — {rival.name}</Text>
+                <Text style={s.modalSub}>Pick films at least 2 years post-release. Price scales with selection size and term.</Text>
+
+                <Text style={s.fieldLbl}>YOUR SERVICE</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 6 }}>
+                  {playerSvcs.map(svc => (
+                    <TouchableOpacity key={svc.id} style={[s.chip, pickSvcId === svc.id && { backgroundColor: T.cyan, borderColor: T.cyan }]} onPress={() => setPickSvcId(svc.id)} testID={`pick-svc-${svc.id}`}>
+                      <Text style={[s.chipTxt, pickSvcId === svc.id && { color: T.cardDark }]}>{svc.name}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 14 }}>
+                  <Text style={s.fieldLbl}>YEARS (1–10)</Text>
+                  <TouchableOpacity onPress={() => setPickedMovieIds(eligible.map(m => m.id))} testID="pick-all-btn">
+                    <Text style={[s.bulkTxt, { color: T.cyan }]}>Select All ({eligible.length})</Text>
+                  </TouchableOpacity>
+                </View>
+                <TextInput value={pickYears} onChangeText={(v) => setPickYears(v.replace(/[^0-9]/g, ''))} keyboardType="numeric" maxLength={2} style={s.inp} testID="pick-years-input" />
+
+                <Text style={[s.fieldLbl, { marginTop: 14 }]}>SELECT FILMS ({pickedMovieIds.length} picked)</Text>
+                <ScrollView style={{ maxHeight: 280, marginTop: 6 }}>
+                  {eligible.length === 0 ? (
+                    <Text style={s.modalSub}>No catalog films are at least 2 years old yet.</Text>
+                  ) : eligible.map(m => {
+                    const selected = pickedMovieIds.includes(m.id);
+                    return (
+                      <TouchableOpacity
+                        key={m.id}
+                        style={[s.movieCheckRow, selected && { borderColor: T.cyan, backgroundColor: 'rgba(40,200,235,0.12)' }]}
+                        onPress={() => setPickedMovieIds(prev => prev.includes(m.id) ? prev.filter(id => id !== m.id) : [...prev, m.id])}
+                        testID={`pick-movie-${m.id}`}
+                      >
+                        <MaterialCommunityIcons name={selected ? 'checkbox-marked' : 'checkbox-blank-outline'} size={18} color={selected ? T.cyan : T.textMute} />
+                        <View style={{ flex: 1, marginLeft: 8 }}>
+                          <Text style={s.movieRowTitle} numberOfLines={1}>{m.title}</Text>
+                          <Text style={s.movieRowSub}>Y{m.releaseYear} · {m.criticScore}/100 · ${m.boxOffice.toFixed(2)}B BO</Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+
+                {fair > 0 ? (
+                  <View style={s.quoteBox}>
+                    <Text style={s.quoteLbl}>OPENING OFFER</Text>
+                    <Text style={s.quoteVal}>${opening.toFixed(2)}B</Text>
+                    <Text style={s.quoteSub}>Fair value: ${fair.toFixed(2)}B · Cash: ${cashB.toFixed(2)}B</Text>
+                  </View>
+                ) : null}
+
+                <TouchableOpacity
+                  style={[s.signBtn, (pickedMovieIds.length === 0 || yrs < 1) && { opacity: 0.5 }]}
+                  disabled={pickedMovieIds.length === 0 || yrs < 1 || !pickSvcId}
+                  onPress={() => {
+                    if (!pickRivalId || !pickSvcId) return;
+                    if (pickedMovieIds.length === 0) { uiAlert('Pick films', 'Select at least one film.'); return; }
+                    if (yrs < 1 || yrs > 10) { uiAlert('Invalid Years', 'Years must be 1–10.'); return; }
+                    const result = proposeBulkCatalogLicense({ toRivalStudioId: pickRivalId, movieIds: pickedMovieIds, priceB: opening, years: yrs, serviceId: pickSvcId });
+                    if (result.error) { uiAlert('Failed', result.error); return; }
+                    setPickRivalId(null);
+                    if (result.offerId) setActiveCatalogId(result.offerId);
+                  }}
+                  testID="pick-propose-btn"
+                >
+                  <MaterialCommunityIcons name="handshake" size={20} color={T.cardDark} />
+                  <Text style={s.signTxt}>OPEN NEGOTIATION</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.cancelBtn} onPress={() => setPickRivalId(null)}>
                   <Text style={s.cancelTxt}>Cancel</Text>
                 </TouchableOpacity>
               </View>
@@ -265,4 +364,7 @@ const s = StyleSheet.create({
   signTxt: { color: T.cardDark, fontWeight: '900' },
   cancelBtn: { paddingVertical: 12, alignItems: 'center' },
   cancelTxt: { color: T.textDim, fontWeight: '700' },
+  movieCheckRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: T.cardDark, padding: 8, marginVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: T.border },
+  movieRowTitle: { color: T.text, fontSize: 13, fontWeight: '800' },
+  movieRowSub: { color: T.textDim, fontSize: 11 },
 });

@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { GameState, Talent, Gender, Movie } from './types';
-import { newGame, simulateWeek as simWeek, simulateMultiple as simMulti, tickWeek, createMovie as createMov, launchPlayerStreamingService as launchSvc, updatePlayerStreamingService as updateSvc, deletePlayerStreamingService as deleteSvc, addMovieToStreaming as addToStream, removeMovieFromStreaming as removeFromStream, hireTalent as hireT, fireTalent as fireT, calculateTalentExpectations, calculateAcceptance, licenseMovieToStreaming as licenseStream, renewLicense as renewLic, setMovieReleaseDate as setRelDate, holdMovie as holdMov, setMarketingAllocation as setMktAlloc, computeLicenseFee, acceptLicenseOffer as acceptLO, counterLicenseOffer as counterLO, rejectLicenseOffer as rejectLO, signNegotiatedContract as signNeg, placeFestivalBid as bidFest, signCinemaDeal as signCine, setMovieDescription as setMovDesc, signBulkLicenseDeal as signBLD, quoteBulkLicenseDeal as quoteBLD, proposeFranchiseTrade as propFr, acceptFranchiseOffer as accFr, counterFranchiseOffer as cntFr, rejectFranchiseOffer as rejFr, quoteFranchiseValue as qFr, proposeBulkCatalogLicense as propBC, acceptBulkCatalogOffer as accBC, counterBulkCatalogOffer as cntBC, rejectBulkCatalogOffer as rejBC, quoteBulkCatalogValue as qBC, LaunchStreamingArgs, HireTalentArgs, LicenseMovieArgs, BulkLicenseDealParams } from './sim';
+import { newGame, simulateWeek as simWeek, simulateMultiple as simMulti, tickWeek, createMovie as createMov, launchPlayerStreamingService as launchSvc, updatePlayerStreamingService as updateSvc, deletePlayerStreamingService as deleteSvc, addMovieToStreaming as addToStream, removeMovieFromStreaming as removeFromStream, hireTalent as hireT, fireTalent as fireT, calculateTalentExpectations, calculateAcceptance, licenseMovieToStreaming as licenseStream, renewLicense as renewLic, setMovieReleaseDate as setRelDate, holdMovie as holdMov, setMarketingAllocation as setMktAlloc, computeLicenseFee, acceptLicenseOffer as acceptLO, counterLicenseOffer as counterLO, rejectLicenseOffer as rejectLO, signNegotiatedContract as signNeg, placeFestivalBid as bidFest, signCinemaDeal as signCine, setMovieDescription as setMovDesc, signBulkLicenseDeal as signBLD, quoteBulkLicenseDeal as quoteBLD, signFranchiseBulkLicense as signFBL, quoteFranchiseBulkLicense as quoteFBL, proposeFranchiseTrade as propFr, acceptFranchiseOffer as accFr, counterFranchiseOffer as cntFr, rejectFranchiseOffer as rejFr, quoteFranchiseValue as qFr, proposeBulkCatalogLicense as propBC, acceptBulkCatalogOffer as accBC, counterBulkCatalogOffer as cntBC, rejectBulkCatalogOffer as rejBC, quoteBulkCatalogValue as qBC, LaunchStreamingArgs, HireTalentArgs, LicenseMovieArgs, BulkLicenseDealParams, FranchiseBulkLicenseParams } from './sim';
 import { FranchiseOfferKind } from './types';
 import { GENRES } from './data';
 
@@ -106,6 +106,8 @@ type Ctx = {
   setMovieDescription: (movieId: string, description: string) => { error?: string };
   signBulkLicenseDeal: (p: BulkLicenseDealParams) => { error?: string; feeM?: number };
   quoteBulkLicenseDeal: (p: BulkLicenseDealParams) => { feeM: number; error?: string };
+  signFranchiseBulkLicense: (p: FranchiseBulkLicenseParams) => { error?: string; feeM?: number };
+  quoteFranchiseBulkLicense: (p: FranchiseBulkLicenseParams) => { feeM: number; error?: string; movieCount?: number };
   proposeFranchiseTrade: (args: { franchiseId: string; kind: FranchiseOfferKind; priceB: number }) => { error?: string; offerId?: string };
   acceptFranchiseOffer: (offerId: string) => { error?: string };
   counterFranchiseOffer: (offerId: string, newPriceB: number) => { error?: string };
@@ -371,6 +373,16 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       quoteBulkLicenseDeal: (p: BulkLicenseDealParams) => {
         if (!state) return { feeM: 0, error: 'No game.' };
         return quoteBLD(state, p);
+      },
+      signFranchiseBulkLicense: (p: FranchiseBulkLicenseParams) => {
+        if (!state) return { error: 'No game.' };
+        const r = signFBL(state, p);
+        if (!r.error) { setStateInner(r.state); persist(r.state); }
+        return { error: r.error, feeM: r.feeM };
+      },
+      quoteFranchiseBulkLicense: (p: FranchiseBulkLicenseParams) => {
+        if (!state) return { feeM: 0, error: 'No game.' };
+        return quoteFBL(state, p);
       },
       proposeFranchiseTrade: (args) => {
         if (!state) return { error: 'No game.' };

@@ -475,8 +475,9 @@ export function recomputeStreamingSubs(args: {
   studioReputation: number; // 0..100
   population: number;       // 0..1 normalised target audience reachable
   weeksRunning: number;
+  exclusiveCount?: number;  // titles unique to this service (not on any other streaming svc)
 }): { totalSubs: number; tierSubs: Record<string, number>; monthlyRevenue: number } {
-  const { service, catalogQuality, catalogSize, studioReputation, weeksRunning } = args;
+  const { service, catalogQuality, catalogSize, studioReputation, weeksRunning, exclusiveCount = 0 } = args;
   if (!service.tiers.length) return { totalSubs: 0, tierSubs: {}, monthlyRevenue: 0 };
 
   // Compute per-tier accessible catalog count (for content gating)
@@ -508,7 +509,9 @@ export function recomputeStreamingSubs(args: {
   const sizeFactor = Math.min(1, catalogSize / 25);            // saturates around 25 titles
   const qualityFactor = Math.max(0, (catalogQuality - 40) / 60); // 0 below 40, 1 at 100
   const repFactor = Math.max(0, studioReputation / 100);
-  const desirability = (0.45 * sizeFactor + 0.35 * qualityFactor + 0.2 * repFactor); // 0..1
+  // Exclusive content boost: rewards services with originals/non-shared catalog (cap at +0.18 demand for 30+ exclusives).
+  const exclusiveFactor = Math.min(0.18, exclusiveCount * 0.006);
+  const desirability = Math.min(1, 0.42 * sizeFactor + 0.32 * qualityFactor + 0.18 * repFactor + exclusiveFactor); // 0..1
 
   // Each tier's draw is inversely related to its effective monthly price AND scaled by its accessible catalog size.
   const baseDrawPerTier = service.tiers.map((t, ix) => {

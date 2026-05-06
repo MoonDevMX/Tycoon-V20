@@ -77,6 +77,23 @@ export function quoteBulkLicenseDeal(state: GameState, p: BulkLicenseDealParams)
   const baseFee = 25 * p.movieCount * reputationMult * recencyMult * (1 + (p.years - 1) * 0.18);
   return { feeM: +baseFee.toFixed(1) };
 }
+
+// Compute weeks of windowing before a rival's released movie joins the player's service
+// under a bulk deal. Hybrids included; theatrical=8–12w, streaming-only=26–52w, hybrid=16–32w.
+export function bulkLicenseDelayWeeks(strategy?: 'theatrical' | 'streaming' | 'hybrid'): number {
+  if (strategy === 'streaming') return randInt(26, 52);
+  if (strategy === 'hybrid') return randInt(16, 32);
+  return randInt(8, 12); // theatrical (default)
+}
+
+// Add (week, year, +deltaWeeks) → eligibility (week, year).
+function addWeeksWY(week: number, year: number, deltaWeeks: number): { week: number; year: number } {
+  let w = week + deltaWeeks;
+  let y = year;
+  while (w > WEEKS_PER_YEAR) { w -= WEEKS_PER_YEAR; y += 1; }
+  return { week: w, year: y };
+}
+
 export function signBulkLicenseDeal(state: GameState, p: BulkLicenseDealParams): { state: GameState; error?: string; feeM?: number } {
   const svcIdx = (state.streamingServices || []).findIndex(s => s.id === p.serviceId && s.studioId === state.player.id);
   if (svcIdx < 0) return { state, error: 'Streaming service not found.' };
@@ -99,6 +116,7 @@ export function signBulkLicenseDeal(state: GameState, p: BulkLicenseDealParams):
     expiresWeek, expiresYear,
     feePaidM: quote.feeM,
     signedWeek: state.week, signedYear: state.year,
+    queuedMovies: [],
   };
   services[svcIdx] = { ...cur, bulkLicenseDeals: [...(cur.bulkLicenseDeals || []), newDeal] };
   const updatedPlayer = { ...state.player, cash: +(state.player.cash - quote.feeM / 1000).toFixed(3) };
@@ -106,6 +124,77 @@ export function signBulkLicenseDeal(state: GameState, p: BulkLicenseDealParams):
   nudgeRelInPlace(relationships, state.player.id, p.rivalStudioId, 6);
   const newsLog = [{ week: state.week, year: state.year, text: `${state.player.name} signs a $${quote.feeM.toFixed(1)}M bulk-license deal with ${rival.name} (${p.movieCount} films / ${p.years}y).` }, ...state.newsLog].slice(0, 100);
   return { state: { ...state, player: updatedPlayer, streamingServices: services, relationships, newsLog }, feeM: quote.feeM };
+}
+
+// =====================================================================
+// FRANCHISE BULK LICENSE — option B: license a rival franchise (current + future)
+// to the player's streaming service for X years. All currently-released films of the
+// franchise (≥0y, no age gate) are added immediately; future releases auto-stream
+// after the standard windowing delay.
+// =====================================================================
+export interface FranchiseBulkLicenseParams { franchiseId: string; serviceId: string; years: number; }
+export function quoteFranchiseBulkLicense(state: GameState, p: FranchiseBulkLicenseParams): { feeM: number; error?: string; movieCount?: number } {
+  const fr = state.franchises.find(f => f.id === p.franchiseId);
+  if (!fr) return { feeM: 0, error: 'Franchise not found.' };
+  if (fr.studioId === state.player.id) return { feeM: 0, error: 'You already own this franchise.' };
+  if (p.years < 1 || p.years > 10) return { feeM: 0, error: 'Years must be 1–10.' };
+  const released = state.movies.filter(m => m.franchiseId === fr.id && m.status === 'released');
+  // Base on franchise popularity, total/recent BO, and term length.
+  const recentBO = released.filter(m => (state.year - m.releaseYear) <= 5).reduce((a, b) => a + b.boxOffice, 0);
+  const popMult = 0.6 + (fr.popularity / 100) * 1.4;       // 0.6..2.0
+  const boMult = 1 + Math.min(3, recentBO / 5);            // saturates at 4×
+  const filmMult = 0.6 + Math.min(3, released.length * 0.18); // more films = pricier
+  const base = 60 * popMult * boMult * filmMult * (1 + (p.years - 1) * 0.22);
+  return { feeM: +base.toFixed(1), movieCount: released.length };
+}
+export function signFranchiseBulkLicense(state: GameState, p: FranchiseBulkLicenseParams): { state: GameState; error?: string; feeM?: number } {
+  const svcIdx = (state.streamingServices || []).findIndex(s => s.id === p.serviceId && s.studioId === state.player.id);
+  if (svcIdx < 0) return { state, error: 'Streaming service not found.' };
+  const fr = state.franchises.find(f => f.id === p.franchiseId);
+  if (!fr) return { state, error: 'Franchise not found.' };
+  if (fr.studioId === state.player.id) return { state, error: 'You already own this franchise.' };
+  const quote = quoteFranchiseBulkLicense(state, p);
+  if (quote.error) return { state, error: quote.error };
+  if (state.player.cash * 1000 < quote.feeM) return { state, error: `Need $${quote.feeM.toFixed(1)}M cash (have $${(state.player.cash * 1000).toFixed(1)}M).` };
+  const services = state.streamingServices.slice();
+  const cur = services[svcIdx];
+  const expiresYear = state.year + p.years;
+  const released = state.movies.filter(m => m.franchiseId === fr.id && m.status === 'released' && m.studioId === fr.studioId);
+  const existingIds = released.map(m => m.id);
+  // Add all currently-released franchise films immediately; record as licensed-in titles.
+  const licenseEntries = (cur.licensedMovies || []).slice();
+  for (const mid of existingIds) {
+    if (!cur.catalogMovieIds.includes(mid)) {
+      licenseEntries.push({ movieId: mid, tierIds: [], feePaid: quote.feeM / Math.max(1, existingIds.length), yearsLicensed: p.years, expiresWeek: state.week, expiresYear });
+    }
+  }
+  const newDeal = {
+    id: uid('bld_'),
+    rivalStudioId: fr.studioId,
+    rivalName: state.rivals.find(r => r.id === fr.studioId)?.name || 'Studio',
+    movieCountTotal: 9999,
+    moviesUsed: 0,
+    expiresWeek: state.week, expiresYear,
+    feePaidM: quote.feeM,
+    signedWeek: state.week, signedYear: state.year,
+    franchiseId: fr.id,
+    queuedMovies: [],
+  };
+  services[svcIdx] = {
+    ...cur,
+    catalogMovieIds: [...cur.catalogMovieIds, ...existingIds.filter(id => !cur.catalogMovieIds.includes(id))],
+    licensedMovies: licenseEntries,
+    bulkLicenseDeals: [...(cur.bulkLicenseDeals || []), newDeal],
+  };
+  // Mark the existing movies as in-this-service
+  const movies = state.movies.map(m => existingIds.includes(m.id)
+    ? { ...m, inStreamingServiceIds: Array.from(new Set([...(m.inStreamingServiceIds || []), cur.id])) }
+    : m);
+  const updatedPlayer = { ...state.player, cash: +(state.player.cash - quote.feeM / 1000).toFixed(3) };
+  const relationships = { ...state.relationships };
+  nudgeRelInPlace(relationships, state.player.id, fr.studioId, 6);
+  const newsLog = [{ week: state.week, year: state.year, text: `${state.player.name} bulk-licenses the entire ${fr.name} franchise to ${cur.name} for $${quote.feeM.toFixed(1)}M / ${p.years}y (${existingIds.length} films + future).` }, ...state.newsLog].slice(0, 100);
+  return { state: { ...state, player: updatedPlayer, streamingServices: services, movies, relationships, newsLog }, feeM: quote.feeM };
 }
 
 export function newGame(playerName: string, logoIdx: number): GameState {
@@ -1338,23 +1427,32 @@ export function simulateWeek(state: GameState): GameState {
         const castCutFraction = m.cast.reduce((a, c) => a + (c.boPercent || 0), 0) / 100;
         const studioCut = openingB * (1 - castCutFraction);
 
-        // Bulk license fulfillment: if a player's streaming service has an active deal with this rival, auto-add this movie.
+        // Bulk license fulfillment: if a player's streaming service has an active deal with this rival, queue with windowing delay (auto-add later).
         if (m.studioId !== player.id) {
           const playerSvcs = streamingServices.filter(svc => svc.studioId === player.id);
           for (const svc of playerSvcs) {
+            const svcIdx = streamingServices.findIndex(s => s.id === svc.id);
+            // Match a count-based deal OR a franchise-bulk deal that matches this movie's franchise.
             const deal = (svc.bulkLicenseDeals || []).find(d => {
               if (d.rivalStudioId !== m.studioId) return false;
-              if (d.moviesUsed >= d.movieCountTotal) return false;
               const expTotal = d.expiresYear * WEEKS_PER_YEAR + d.expiresWeek;
               const nowTotal = newYear * WEEKS_PER_YEAR + newWeek;
-              return expTotal >= nowTotal;
+              if (expTotal < nowTotal) return false;
+              if (d.franchiseId) return m.franchiseId === d.franchiseId;
+              if (d.moviesUsed >= d.movieCountTotal) return false;
+              return true;
             });
             if (deal && !svc.catalogMovieIds.includes(m.id)) {
-              const svcIdx = streamingServices.findIndex(s => s.id === svc.id);
-              const updatedDeals = (svc.bulkLicenseDeals || []).map(d => d.id === deal.id ? { ...d, moviesUsed: d.moviesUsed + 1 } : d);
-              streamingServices[svcIdx] = { ...streamingServices[svcIdx], catalogMovieIds: [...streamingServices[svcIdx].catalogMovieIds, m.id], bulkLicenseDeals: updatedDeals };
-              m.inStreamingServiceIds = [...(m.inStreamingServiceIds || []), svc.id];
-              news.push({ week: newWeek, year: newYear, text: `📥 Bulk deal: ${m.title} auto-licensed to ${svc.name} (${deal.movieCountTotal - deal.moviesUsed - 1} films left).` });
+              const alreadyQueued = (deal.queuedMovies || []).some(q => q.movieId === m.id);
+              if (alreadyQueued) break;
+              const delay = bulkLicenseDelayWeeks(m.releaseStrategy);
+              const elig = addWeeksWY(newWeek, newYear, delay);
+              const updatedDeals = (svc.bulkLicenseDeals || []).map(d => d.id === deal.id
+                ? { ...d, queuedMovies: [...(d.queuedMovies || []), { movieId: m.id, eligibleWeek: elig.week, eligibleYear: elig.year }] }
+                : d);
+              streamingServices[svcIdx] = { ...streamingServices[svcIdx], bulkLicenseDeals: updatedDeals };
+              const remainingNote = deal.franchiseId ? '' : ` (${deal.movieCountTotal - deal.moviesUsed - (deal.queuedMovies?.length || 0) - 1} films left)`;
+              news.push({ week: newWeek, year: newYear, text: `📥 Bulk deal: ${m.title} will join ${svc.name} in ~${delay}w${remainingNote}.` });
               break;
             }
           }
@@ -1602,6 +1700,41 @@ export function simulateWeek(state: GameState): GameState {
   player.rating = stars;
 
   // ---------- Streaming services weekly tick ----------
+  // 0a) Drain bulk-license deal queues: any movies past their windowing eligibility
+  //     get added to the player's streaming service catalog (count toward moviesUsed
+  //     unless the deal is franchise-based).
+  streamingServices.forEach(svc => {
+    if (svc.studioId !== player.id) return;
+    if (!svc.bulkLicenseDeals?.length) return;
+    const updatedDeals = svc.bulkLicenseDeals.map(d => {
+      const queue = d.queuedMovies || [];
+      if (!queue.length) return d;
+      const ready: typeof queue = [];
+      const remaining: typeof queue = [];
+      const nowTotal = newYear * WEEKS_PER_YEAR + newWeek;
+      queue.forEach(q => {
+        const eligTotal = q.eligibleYear * WEEKS_PER_YEAR + q.eligibleWeek;
+        if (eligTotal <= nowTotal) ready.push(q); else remaining.push(q);
+      });
+      if (!ready.length) return d;
+      let used = d.moviesUsed;
+      ready.forEach(r => {
+        if (svc.catalogMovieIds.includes(r.movieId)) return;
+        // For count-based deals, respect movieCountTotal cap.
+        if (!d.franchiseId && used >= d.movieCountTotal) return;
+        svc.catalogMovieIds.push(r.movieId);
+        const mv = movies.find(mm => mm.id === r.movieId);
+        if (mv) {
+          mv.inStreamingServiceIds = Array.from(new Set([...(mv.inStreamingServiceIds || []), svc.id]));
+          news.push({ week: newWeek, year: newYear, text: `📥 Bulk window closed: ${mv.title} now streaming on ${svc.name}.` });
+        }
+        if (!d.franchiseId) used += 1;
+      });
+      return { ...d, moviesUsed: used, queuedMovies: remaining };
+    });
+    svc.bulkLicenseDeals = updatedDeals;
+  });
+
   // First: expire any licensed-in titles whose duration has passed
   streamingServices.forEach(svc => {
     if (!svc.licensedMovies?.length) return;
@@ -1647,6 +1780,11 @@ export function simulateWeek(state: GameState): GameState {
       ? +(catalogMovies.reduce((a, b) => a + (b.criticScore || 60), 0) / catalogMovies.length).toFixed(1)
       : 55;
     const catalogSize = catalogMovies.length;
+    // Count titles that are unique to THIS service (not present on any other streaming service).
+    const exclusiveCount = catalogMovies.reduce((acc, m) => {
+      const others = (m.inStreamingServiceIds || []).filter(sid => sid !== svc.id);
+      return acc + (others.length === 0 ? 1 : 0);
+    }, 0);
     const weeksRunning = (newYear - svc.launchedYear) * WEEKS_PER_YEAR + (newWeek - svc.launchedWeek);
 
     const out = recomputeStreamingSubs({
@@ -1656,11 +1794,14 @@ export function simulateWeek(state: GameState): GameState {
       studioReputation: ownerRep,
       population: 1,
       weeksRunning,
+      exclusiveCount,
     });
     svc.subscribers = out.totalSubs;
     svc.tierSubscribers = out.tierSubs;
     svc.monthlyRevenue = out.monthlyRevenue;
-    svc.reputation = Math.min(100, Math.max(20, Math.round(0.6 * catalogQuality + 0.4 * ownerRep)));
+    // Reputation now also factors exclusive content (capped at +15 for 25+ exclusives).
+    const exclusiveRepBoost = Math.min(15, Math.round(exclusiveCount * 0.6));
+    svc.reputation = Math.min(100, Math.max(20, Math.round(0.55 * catalogQuality + 0.35 * ownerRep + exclusiveRepBoost)));
     svc.history.push({ week: newWeek, year: newYear, subscribers: svc.subscribers, revenue: svc.monthlyRevenue });
     if (svc.history.length > 96) svc.history.shift();
 

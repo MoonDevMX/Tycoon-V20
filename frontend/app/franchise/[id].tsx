@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, ScrollView, Modal, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
@@ -12,9 +12,12 @@ import { uiAlert } from '../../src/ui/ui-alert';
 export default function FranchiseDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { state, proposeFranchiseTrade, acceptFranchiseOffer, counterFranchiseOffer, rejectFranchiseOffer, quoteFranchiseValue } = useGame();
+  const { state, proposeFranchiseTrade, acceptFranchiseOffer, counterFranchiseOffer, rejectFranchiseOffer, quoteFranchiseValue, signFranchiseBulkLicense, quoteFranchiseBulkLicense } = useGame();
   const [tradeOpen, setTradeOpen] = useState(false);
   const [activeTradeId, setActiveTradeId] = useState<string | null>(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkSvcId, setBulkSvcId] = useState<string | null>(null);
+  const [bulkYears, setBulkYears] = useState('5');
   if (!state) return null;
   const franchise = state.franchises.find(f => f.id === id);
   if (!franchise) return <View><Text>Not found</Text></View>;
@@ -173,6 +176,21 @@ export default function FranchiseDetail() {
                 <Text style={s.btnSub}>Use this franchise in a crossover with one of yours.</Text>
               </TouchableOpacity>
               <TouchableOpacity
+                style={[s.btn, { backgroundColor: T.cardDark, borderColor: T.cyan, flex: 1 }]}
+                onPress={() => {
+                  const playerSvcs = (state.streamingServices || []).filter(svc => svc.studioId === state.player.id);
+                  if (playerSvcs.length === 0) { uiAlert('No Streaming Service', 'Launch your own streaming service before licensing a rival franchise to it.'); return; }
+                  setBulkSvcId(playerSvcs[0].id);
+                  setBulkYears('5');
+                  setBulkOpen(true);
+                }}
+                testID="franchise-bulk-license-btn"
+              >
+                <MaterialCommunityIcons name="package-variant-closed" size={24} color={T.cyan} />
+                <Text style={[s.btnT, { color: T.cyan }]}>Bulk-License to My Streaming</Text>
+                <Text style={s.btnSub}>License every current + future film of this franchise.</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
                 style={[s.btn, { backgroundColor: T.cardDark, borderColor: T.yellow, flex: 1 }]}
                 onPress={startBuy}
                 testID="franchise-buy-btn"
@@ -197,6 +215,63 @@ export default function FranchiseDetail() {
           </TouchableOpacity>
         ))}
       </ScrollView>
+
+      {/* Franchise Bulk License modal */}
+      <Modal visible={bulkOpen} transparent animationType="slide" onRequestClose={() => setBulkOpen(false)}>
+        {(() => {
+          const playerSvcs = (state.streamingServices || []).filter(svc => svc.studioId === state.player.id);
+          const yrs = parseInt(bulkYears, 10) || 0;
+          const quote = bulkSvcId && yrs > 0 ? quoteFranchiseBulkLicense({ franchiseId: franchise.id, serviceId: bulkSvcId, years: yrs }) : null;
+          return (
+            <View style={fs.modalBg}>
+              <View style={fs.modalCard}>
+                <Text style={fs.modalTitle}>License {franchise.name}</Text>
+                <Text style={fs.modalSub}>Adds every released film of this franchise to your service immediately, plus rights to future releases for the term (each film windows in 8–12w post-theatrical, 16–32w hybrid, 26–52w streaming-only).</Text>
+
+                <Text style={fs.fieldLbl}>YOUR SERVICE</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 6 }}>
+                  {playerSvcs.map(svc => (
+                    <TouchableOpacity key={svc.id} style={[fs.chip, bulkSvcId === svc.id && { backgroundColor: T.cyan, borderColor: T.cyan }]} onPress={() => setBulkSvcId(svc.id)} testID={`fb-svc-${svc.id}`}>
+                      <Text style={[fs.chipTxt, bulkSvcId === svc.id && { color: T.cardDark }]}>{svc.name}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+
+                <Text style={fs.fieldLbl}>YEARS (1–10)</Text>
+                <TextInput value={bulkYears} onChangeText={(v) => setBulkYears(v.replace(/[^0-9]/g, ''))} keyboardType="numeric" maxLength={2} style={fs.inp} testID="fb-years-input" />
+
+                {quote && !quote.error ? (
+                  <View style={fs.quoteBox}>
+                    <Text style={fs.quoteLbl}>UPFRONT FEE</Text>
+                    <Text style={fs.quoteVal}>${quote.feeM.toFixed(1)}M</Text>
+                    <Text style={fs.quoteSub}>{quote.movieCount} current films + future for {yrs}y · Cash on hand: ${(state.player.cash * 1000).toFixed(0)}M</Text>
+                  </View>
+                ) : quote?.error ? (
+                  <Text style={[fs.modalSub, { color: T.red, marginTop: 10 }]}>{quote.error}</Text>
+                ) : null}
+
+                <TouchableOpacity
+                  style={fs.signBtn}
+                  onPress={() => {
+                    if (!bulkSvcId) return;
+                    const r = signFranchiseBulkLicense({ franchiseId: franchise.id, serviceId: bulkSvcId, years: yrs });
+                    if (r.error) { uiAlert('Deal Failed', r.error); return; }
+                    uiAlert('Franchise Licensed ✓', `Paid $${r.feeM?.toFixed(1)}M. Current films added; future releases will window in.`);
+                    setBulkOpen(false);
+                  }}
+                  testID="fb-sign-btn"
+                >
+                  <MaterialCommunityIcons name="handshake" size={20} color={T.cardDark} />
+                  <Text style={fs.signTxt}>SIGN DEAL</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={fs.cancelBtn} onPress={() => setBulkOpen(false)}>
+                  <Text style={fs.cancelTxt}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          );
+        })()}
+      </Modal>
 
       <NegotiationModal
         visible={tradeOpen && !!liveOffer}
@@ -250,4 +325,23 @@ const s = StyleSheet.create({
   crossRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: T.card, padding: 8, borderRadius: 6, marginTop: 4, borderWidth: 1, borderColor: T.border },
   crossTitle: { color: T.text, fontWeight: '800', fontSize: 13 },
   crossSub: { color: T.textDim, fontSize: 11 },
+});
+
+const fs = StyleSheet.create({
+  modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
+  modalCard: { backgroundColor: '#4d5058', padding: 18, borderTopLeftRadius: 18, borderTopRightRadius: 18, borderWidth: 3, borderColor: T.border },
+  modalTitle: { color: T.text, fontSize: 22, fontWeight: '900' },
+  modalSub: { color: T.textDim, fontSize: 12, marginTop: 4 },
+  fieldLbl: { color: T.yellow, marginTop: 14, fontWeight: '900', fontSize: 12, letterSpacing: 1 },
+  inp: { backgroundColor: T.cardDark, color: T.text, paddingVertical: 12, paddingHorizontal: 14, borderRadius: 8, borderWidth: 2, borderColor: T.border, marginTop: 6, fontSize: 18, fontWeight: '900' },
+  chip: { backgroundColor: T.cardDark, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, borderWidth: 2, borderColor: T.border, marginRight: 6 },
+  chipTxt: { color: T.text, fontWeight: '800', fontSize: 12 },
+  quoteBox: { backgroundColor: T.cardDark, padding: 12, borderRadius: 8, marginTop: 12, borderWidth: 2, borderColor: T.green, alignItems: 'center' },
+  quoteLbl: { color: T.green, fontWeight: '900', fontSize: 11, letterSpacing: 1 },
+  quoteVal: { color: T.green, fontSize: 28, fontWeight: '900' },
+  quoteSub: { color: T.textDim, fontSize: 11, marginTop: 2, textAlign: 'center' },
+  signBtn: { flexDirection: 'row', backgroundColor: T.green, paddingVertical: 14, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginTop: 16, gap: 6, borderWidth: 2, borderColor: T.border },
+  signTxt: { color: T.cardDark, fontWeight: '900' },
+  cancelBtn: { paddingVertical: 12, alignItems: 'center' },
+  cancelTxt: { color: T.textDim, fontWeight: '700' },
 });

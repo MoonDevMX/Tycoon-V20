@@ -73,6 +73,15 @@ export interface BulkLicenseDeal {
   expiresWeek: number;
   expiresYear: number;
   feePaidM: number;
+  // OPTIONAL: if set, deal targets a specific franchise (all current + future films
+  // of this franchise from the rival auto-license to player's service for the deal term).
+  franchiseId?: string;
+  // Films awaiting their windowed transfer to player's service after the rival has released them.
+  // Each entry contains the eligibility week/year computed at release time based on releaseStrategy:
+  //   - theatrical: +8–12 weeks after rival release
+  //   - streaming  (rival-exclusive period): +26–52 weeks
+  //   - hybrid: +16–32 weeks
+  queuedMovies?: { movieId: string; eligibleWeek: number; eligibleYear: number }[];
 }
 
 export interface TalentContract {
