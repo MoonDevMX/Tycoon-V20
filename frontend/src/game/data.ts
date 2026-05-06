@@ -450,8 +450,79 @@ export function defaultTiers(): SubscriptionTier[] {
   return [
     { id: uid('tier_'), name: 'Basic',    period: 'monthly', price:  9.99, screens: 1, users: 1, isExclusive: false },
     { id: uid('tier_'), name: 'Standard', period: 'monthly', price: 14.99, screens: 2, users: 4, isExclusive: false },
-    { id: uid('tier_'), name: 'Premium',  period: 'monthly', price: 19.99, screens: 4, users: 6, isExclusive: true  },
+    { id: uid('tier_'), name: 'Premium',  period: 'monthly', price: 19.99, screens: 4, users: 6, isExclusive: false },
   ];
+}
+
+// === Tier-level helpers (Basic ⊂ Standard ⊂ Premium) ===
+// Convention: tiers are sorted by ascending price → index 0 = cheapest = Basic, last index = Premium.
+// minLevel 0 = visible to all (Basic+Standard+Premium); 1 = Standard+Premium; 2 = Premium-only.
+export function tiersAtOrAboveLevel(tiers: SubscriptionTier[], minLevel: number): string[] {
+  const sorted = [...tiers].map((t, i) => ({ t, i })).sort((a, b) => a.t.price - b.t.price);
+  return sorted.filter(x => x.i >= minLevel || sorted.findIndex(y => y.i === x.i) >= minLevel).map(x => x.t.id);
+}
+export function levelLabel(lvl: number): string {
+  if (lvl <= 0) return 'Basic+';
+  if (lvl === 1) return 'Standard+';
+  return 'Premium-only';
+}
+
+// === EXTERNAL IP LICENSORS / IPs ===
+const LICENSOR_TEMPLATES: { name: string; category: import('./types').IPCategory }[] = [
+  { name: 'Mythos Publishing',   category: 'book' },
+  { name: 'Apex Games',          category: 'video_game' },
+  { name: 'Polaris Toys',        category: 'toy' },
+  { name: 'Continental Sports',  category: 'sports' },
+  { name: 'Vanguard Comics',     category: 'comic' },
+  { name: 'Helios Records',      category: 'music' },
+  { name: 'Northwind Books',     category: 'book' },
+  { name: 'Crucible Studios',    category: 'video_game' },
+];
+const IP_NAME_POOL: Record<import('./types').IPCategory, string[]> = {
+  book:        ['The Crimson Mage', 'Galaxy Riders', 'The Last Lighthouse', 'Iron Veil', 'Forbidden Atlas', 'The Silent Empress'],
+  video_game:  ['Stardrift Saga', 'Throne of Embers', 'Voidcaller', 'Megaforge', 'Eclipse Protocol', 'Neon Phantom'],
+  toy:         ['Mighty Mechs', 'Crystal Pony Brigade', 'Captain Comet', 'Plushverse', 'Block Knights'],
+  sports:      ['Global Football League', 'Continental Basketball', 'Velocity Cup', 'The Iron Run', 'World Cricket Series'],
+  comic:       ['Quantum Dawn', 'Crimson Strike', 'Nightowl', 'The Aether Five', 'Lunar Sentinel'],
+  music:       ['The Vermillion Tour', 'Echoes of August', 'Sapphire Choir', 'The Last Encore'],
+};
+export function seedExternalLicensors(): { licensors: import('./types').ExternalLicensor[]; ips: import('./types').ExternalIP[] } {
+  const licensors: import('./types').ExternalLicensor[] = LICENSOR_TEMPLATES.map(t => ({
+    id: uid('lic_'), name: t.name, category: t.category, reputation: randInt(40, 90),
+  }));
+  const ips: import('./types').ExternalIP[] = [];
+  licensors.forEach(l => {
+    const pool = IP_NAME_POOL[l.category];
+    const count = randInt(2, 4);
+    const picked = [...pool].sort(() => Math.random() - 0.5).slice(0, count);
+    picked.forEach(n => {
+      ips.push({
+        id: uid('ip_'),
+        name: n,
+        licensorId: l.id,
+        category: l.category,
+        popularity: Math.max(20, Math.min(95, l.reputation + randInt(-15, 20))),
+      });
+    });
+  });
+  return { licensors, ips };
+}
+export function quoteIPLicenseFee(ip: import('./types').ExternalIP, args: { years: number; packs: number; boPercent: number; merchPercent: number; exclusivity: boolean; sublicensable: boolean }): number {
+  // Base: popularity × packs × years scaling, then discounts/premiums.
+  const base = (ip.popularity / 100) * 60 * Math.max(1, args.packs) * (1 + (args.years - 1) * 0.18);
+  // Lower upfront if licensor takes more BO/merch %.
+  const royaltyDiscount = 1 - Math.min(0.55, args.boPercent / 30 + args.merchPercent / 60);
+  const exclMult = args.exclusivity ? 1.65 : 1.0;
+  const subMult = args.sublicensable ? 1.25 : 1.0;
+  return +(base * royaltyDiscount * exclMult * subMult).toFixed(1);
+}
+export function ipBoostsForMovie(ip: import('./types').ExternalIP): { boMult: number; popularityBoost: number; fameBoost: number } {
+  const p = ip.popularity / 100;
+  return {
+    boMult: 1 + 0.1 + p * 0.4,        // +10–50%
+    popularityBoost: Math.round(8 + p * 18), // +8–26
+    fameBoost: Math.round(2 + p * 5),        // +2–7
+  };
 }
 
 const SERVICE_SUFFIX = ['+', ' Stream', ' Now', ' Play', ' Plus', ' One', ' Reel', ' Flix', ' On Demand', ' Channel'];

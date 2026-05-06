@@ -1,5 +1,5 @@
 import { GameState, Movie, Studio, Talent, Franchise, AudienceSegment, ColorTrait, DealType, Role, StreamingService, ReleaseStrategy, Genre, LicenseOffer, Festival, FestivalLot, CinemaDeal, CinemaRegion, FranchiseOffer, FranchiseOfferKind, BulkCatalogOffer } from './types';
-import { GENRE_ICON, RIVAL_NAMES, STUDIO_LOGOS, arcGenreFit, computeChemistryBonus, contractTerms, dealTerms, generateReviews, genFranchiseName, genPlot, genTalent, genTitleSubtitle, holidayFor, pick, randInt, uid, GENRES, WEEKS_PER_YEAR, COLORS, relKey, nudgeRelInPlace, defaultTiers, genServiceName, recomputeStreamingSubs, effectiveSkillFor, aiBudgetForRating, licenseDesirability, licenseOfferDialog, FESTIVAL_TEMPLATES, CINEMA_CHAINS, cinemaDealRange, cinemaStudioShareForWeek } from './data';
+import { GENRE_ICON, RIVAL_NAMES, STUDIO_LOGOS, arcGenreFit, computeChemistryBonus, contractTerms, dealTerms, generateReviews, genFranchiseName, genPlot, genTalent, genTitleSubtitle, holidayFor, pick, randInt, uid, GENRES, WEEKS_PER_YEAR, COLORS, relKey, nudgeRelInPlace, defaultTiers, genServiceName, recomputeStreamingSubs, effectiveSkillFor, aiBudgetForRating, licenseDesirability, licenseOfferDialog, FESTIVAL_TEMPLATES, CINEMA_CHAINS, cinemaDealRange, cinemaStudioShareForWeek, seedExternalLicensors, quoteIPLicenseFee, ipBoostsForMovie } from './data';
 import { computeMarketingEfficiency } from './marketing';
 
 export const POST_PRODUCTION_COOLDOWN_WEEKS = 3;
@@ -283,10 +283,17 @@ export function newGame(playerName: string, logoIdx: number): GameState {
   });
 
   const START_YEAR = 11; // 10 years of industry history are seeded before Day 1
+  const ipSeed = seedExternalLicensors();
   return seedHistory({
     initialized: true, week: 1, year: START_YEAR, player, rivals,
     movies: [], talents, franchises, audience, relationships, streamingServices,
     newsLog: [{ week: 1, year: START_YEAR, text: `${player.name} opens its doors. The lights are on across 15 studios industry-wide. ${streamingServices.length} streaming rivals are already broadcasting.` }],
+    externalLicensors: ipSeed.licensors,
+    externalIPs: ipSeed.ips,
+    externalIPOffers: [],
+    ownedIPLicenses: [],
+    outboundIPListings: [],
+    outboundIPBids: [],
   });
 }
 
@@ -413,6 +420,8 @@ export interface CreateMovieArgs {
   // Player-chosen release date. If absent, default to filming + 0 (release as soon as production wraps).
   targetReleaseWeek?: number;
   targetReleaseYear?: number;
+  // Optional external IP license to attach (uses one pack of an OwnedIPLicense).
+  externalIPLicenseId?: string;
 }
 
 export function createMovie(state: GameState, args: CreateMovieArgs): { state: GameState; movie?: Movie; error?: string } {
@@ -489,6 +498,18 @@ export function createMovie(state: GameState, args: CreateMovieArgs): { state: G
     weeksToRelease = 999999; // effectively infinite — user must schedule later via setMovieReleaseDate
   }
 
+  // External IP license attachment (uses one pack of an OwnedIPLicense; later boosts BO/popularity at release)
+  let attachedIP: { id: string; ipId: string } | undefined;
+  if (args.externalIPLicenseId) {
+    const lic = (state.ownedIPLicenses || []).find(l => l.id === args.externalIPLicenseId && l.studioId === player.id);
+    if (!lic) return { state, error: 'IP license not found.' };
+    if (lic.packsUsed >= lic.packs) return { state, error: 'IP license has no remaining packs.' };
+    const expTotal = lic.expiresYear * WEEKS_PER_YEAR + lic.expiresWeek;
+    const nowTotal = state.year * WEEKS_PER_YEAR + state.week;
+    if (expTotal < nowTotal) return { state, error: 'IP license has expired.' };
+    attachedIP = { id: lic.id, ipId: lic.ipId };
+  }
+
   const title = (args.title?.trim()) || genTitleSubtitle(franchiseName!, args.brand, sequelNum);
   const movie: Movie = {
     id: uid('m_'), title, type: args.type, genre: args.genre, plotArc: args.plotArc,
@@ -510,6 +531,8 @@ export function createMovie(state: GameState, args: CreateMovieArgs): { state: G
     onHold,
     targetReleaseWeek: args.targetReleaseWeek,
     targetReleaseYear: args.targetReleaseYear,
+    externalIPId: attachedIP?.ipId,
+    ipLicenseId: attachedIP?.id,
   };
 
   // Lock all cast/crew to this in-production movie
@@ -520,7 +543,10 @@ export function createMovie(state: GameState, args: CreateMovieArgs): { state: G
 
   const updatedPlayer = { ...player, cash: +(player.cash - totalBudgetB).toFixed(3) };
   const updatedFranchises = state.franchises.map(f => f.id === franchiseId ? { ...f, movieIds: [...f.movieIds, movie.id] } : f);
-  return { state: { ...state, player: updatedPlayer, talents: updatedTalents, movies: [...state.movies, movie], franchises: updatedFranchises }, movie };
+  // Bump packsUsed on the IP license, if attached
+  let ownedIPLicenses = state.ownedIPLicenses || [];
+  if (attachedIP) ownedIPLicenses = ownedIPLicenses.map(l => l.id === attachedIP!.id ? { ...l, packsUsed: l.packsUsed + 1 } : l);
+  return { state: { ...state, player: updatedPlayer, talents: updatedTalents, movies: [...state.movies, movie], franchises: updatedFranchises, ownedIPLicenses }, movie };
 }
 
 // ---------- Player streaming service operations ----------
@@ -1403,14 +1429,37 @@ export function simulateWeek(state: GameState): GameState {
         const marketingEff = computeMarketingEfficiency(m.marketingAllocation, state.audience);
         const fameMult = 0.7 + (avgCastFame / 100) * 0.7;
         const criticMult = m.criticScore >= 90 ? 1.6 : m.criticScore >= 80 ? 1.3 : m.criticScore >= 70 ? 1.05 : m.criticScore >= 55 ? 0.8 : 0.5;
+        // External IP attached → apply BO multiplier from licensed IP popularity.
+        let ipMult = 1;
+        if (m.externalIPId) {
+          const ip = state.externalIPs?.find(i => i.id === m.externalIPId);
+          if (ip) ipMult = ipBoostsForMovie(ip).boMult;
+        }
         const isStreamingExclusive = m.releaseStrategy === 'streaming';
-        const opening = isStreamingExclusive ? 0 : (40 + Math.random() * 30) * marketingMult * marketingEff * fameMult * criticMult * franchiseMult * fit * (1 + chemBonus) * holidayMult;
+        const opening = isStreamingExclusive ? 0 : (40 + Math.random() * 30) * marketingMult * marketingEff * fameMult * criticMult * franchiseMult * fit * (1 + chemBonus) * holidayMult * ipMult;
         const openingB = +(opening / 1000).toFixed(4);
         m.weeklyBO.push(openingB);
         m.boxOffice = openingB;
         m.status = 'released';
         m.releaseWeek = newWeek; m.releaseYear = newYear;
         m.reviews = generateReviews(m.criticScore);
+        // External IP licensor BO royalty: deduct % of opening from player's cash (recorded against player).
+        if (m.externalIPId && m.studioId === player.id) {
+          const lic = (state.ownedIPLicenses || []).find(l => l.id === m.ipLicenseId);
+          if (lic && lic.boPercent > 0) {
+            const royB = +(openingB * lic.boPercent / 100).toFixed(4);
+            // Deduct from player cash
+            const playerIdx = -1; // player handled in main loop
+            // Apply later when we settle profits — simplest: reduce m.boxOffice for player's share calc later.
+            // We'll just push a news note now; cash deduction happens lazily via news only.
+            // To keep things simple AND truthful: deduct directly here.
+            // (Cash field is on `player` object outside this map; we update via a side-effect.)
+            // We'll mutate via state at the end of simulateWeek; but here we don't have direct reference.
+            // Push a delta to a queue we drain after the loop.
+            (state as any).__pendingIPRoyalties = ((state as any).__pendingIPRoyalties || 0) + royB;
+            news.push({ week: newWeek, year: newYear, text: `📜 IP royalty owed on ${m.title}: $${(royB * 1000).toFixed(2)}M (${lic.boPercent}% to licensor).` });
+          }
+        }
 
         // Streaming-exclusive: auto-add to the player-chosen service+tiers (or studio's first service for AI).
         // Hybrid & Theatrical: NEVER auto-add. Player must license/add manually from streaming detail.
@@ -1848,6 +1897,13 @@ export function simulateWeek(state: GameState): GameState {
     }
   }
 
+  // Settle pending IP royalties accumulated during release loop (player-side only).
+  const royB: number = (state as any).__pendingIPRoyalties || 0;
+  if (royB > 0) {
+    player = { ...player, cash: +(player.cash - royB).toFixed(3) };
+    delete (state as any).__pendingIPRoyalties;
+  }
+
   return {
     ...state, week: newWeek, year: newYear, player, rivals, movies, talents, franchises, relationships, streamingServices,
     audience,
@@ -2105,7 +2161,7 @@ function finalizeFranchiseTrade(state: GameState, offerId: string): { state: Gam
 
 // ----- Bulk catalog license lifecycle -----
 
-export function proposeBulkCatalogLicense(state: GameState, args: { fromRivalStudioId?: string; toRivalStudioId?: string; movieIds: string[]; priceB: number; years: number; serviceId: string }): { state: GameState; offer?: BulkCatalogOffer; error?: string } {
+export function proposeBulkCatalogLicense(state: GameState, args: { fromRivalStudioId?: string; toRivalStudioId?: string; movieIds: string[]; priceB: number; years: number; serviceId: string; exclusivity?: boolean }): { state: GameState; offer?: BulkCatalogOffer; error?: string } {
   if (args.movieIds.length === 0) return { state, error: 'Select at least 1 movie.' };
   if (args.years < 1 || args.years > 10) return { state, error: 'Years must be 1–10.' };
   const playerId = state.player.id;
@@ -2123,6 +2179,7 @@ export function proposeBulkCatalogLicense(state: GameState, args: { fromRivalStu
     priceB: +args.priceB.toFixed(3),
     years: args.years,
     serviceId: args.serviceId,
+    exclusivity: !!args.exclusivity,
     round: 0, maxRounds: 3,
     lastActor: 'from',
     status: 'pending',
@@ -2207,6 +2264,7 @@ function finalizeBulkCatalog(state: GameState, offerId: string): { state: GameSt
   else { const i = rivals.findIndex(r => r.id === sellerId); if (i >= 0) rivals[i] = { ...rivals[i], cash: +(rivals[i].cash + o.priceB).toFixed(3) }; }
   // Add movies to buyer's streaming service (if provided) as licensed titles.
   const services = state.streamingServices.slice();
+  let movies = state.movies.slice();
   if (o.serviceId) {
     const svcIdx = services.findIndex(s => s.id === o.serviceId);
     if (svcIdx >= 0) {
@@ -2218,15 +2276,39 @@ function finalizeBulkCatalog(state: GameState, offerId: string): { state: GameSt
         licenseEntries.push({ movieId: mid, tierIds: [], feePaid: o.priceB * 1000 / added.length, yearsLicensed: o.years, expiresWeek: expW, expiresYear: expY });
       }
       services[svcIdx] = { ...svc, catalogMovieIds: [...svc.catalogMovieIds, ...added], licensedMovies: licenseEntries };
+      // EXCLUSIVITY: strip these movie IDs from any OTHER streaming service's catalog/licensedMovies/exclusiveMovieIds
+      if (o.exclusivity) {
+        const idsSet = new Set(o.movieIds);
+        for (let i = 0; i < services.length; i++) {
+          if (i === svcIdx) continue;
+          const other = services[i];
+          const stripped = other.catalogMovieIds.filter(id => !idsSet.has(id));
+          if (stripped.length !== other.catalogMovieIds.length) {
+            services[i] = {
+              ...other,
+              catalogMovieIds: stripped,
+              licensedMovies: (other.licensedMovies || []).filter(l => !idsSet.has(l.movieId)),
+              exclusiveMovieIds: (other.exclusiveMovieIds || []).filter(id => !idsSet.has(id)),
+            };
+          }
+        }
+        // Mark each movie as in-this-service-only
+        movies = movies.map(m => idsSet.has(m.id) ? { ...m, inStreamingServiceIds: [services[svcIdx].id] } : m);
+      } else {
+        // Non-exclusive — just append svc id to inStreamingServiceIds for added films
+        movies = movies.map(m => o.movieIds.includes(m.id)
+          ? { ...m, inStreamingServiceIds: Array.from(new Set([...(m.inStreamingServiceIds || []), services[svcIdx].id])) }
+          : m);
+      }
     }
   }
-  offers[idx] = { ...o, status: 'accepted', message: `Closed at $${o.priceB.toFixed(2)}B.` };
+  offers[idx] = { ...o, status: 'accepted', message: `Closed at $${o.priceB.toFixed(2)}B${o.exclusivity ? ' EXCLUSIVE' : ''}.` };
   const relationships = { ...state.relationships };
   nudgeRelInPlace(relationships, buyerId, sellerId, 3);
   const buyerName = buyerId === state.player.id ? state.player.name : state.rivals.find(r => r.id === buyerId)?.name || '—';
   const sellerName = sellerId === state.player.id ? state.player.name : state.rivals.find(r => r.id === sellerId)?.name || '—';
-  const newsLog = [{ week: state.week, year: state.year, text: `📀 ${buyerName} licenses ${o.movieIds.length} ${sellerName} titles for $${o.priceB.toFixed(2)}B / ${o.years}yr.` }, ...state.newsLog].slice(0, 100);
-  return { state: { ...state, player, rivals, streamingServices: services, bulkCatalogOffers: offers, relationships, newsLog } };
+  const newsLog = [{ week: state.week, year: state.year, text: `📀 ${buyerName} licenses ${o.movieIds.length} ${sellerName} titles${o.exclusivity ? ' (EXCLUSIVE)' : ''} for $${o.priceB.toFixed(2)}B / ${o.years}yr.` }, ...state.newsLog].slice(0, 100);
+  return { state: { ...state, player, rivals, movies, streamingServices: services, bulkCatalogOffers: offers, relationships, newsLog } };
 }
 
 // =====================================================================
@@ -2319,6 +2401,13 @@ export function tickWeek(state: GameState): GameState {
   s = spawnFestivalIfDue(s);
   s = aiFestivalTick(s);
   s = resolveFestivalLots(s);
+  // External IP licensing: roll a weekly chance to spawn an inbound offer or outbound bid.
+  // Cap pending offers to avoid backlog.
+  const pendingOffers = (s.externalIPOffers || []).filter(o => o.status === 'pending').length;
+  if (pendingOffers < 4 && Math.random() < 0.18) s = generateInboundIPOffer(s);
+  const pendingBids = (s.outboundIPBids || []).filter(b => b.status === 'pending').length;
+  if (pendingBids < 4 && Math.random() < 0.22) s = generateOutboundBid(s);
+  s = processOutboundRoyalties(s);
   return s;
 }
 
@@ -2526,3 +2615,246 @@ export function setMovieDescription(state: GameState, movieId: string, descripti
   const movies = state.movies.map(m => m.id === movieId ? { ...m, userDescription: description } : m);
   return { state: { ...state, movies } };
 }
+
+
+// =====================================================================
+// EXTERNAL IP LICENSING — INBOUND (licensors offer IPs to studios)
+// =====================================================================
+export interface IPOfferTerms { ipId: string; feeM: number; boPercent: number; merchPercent: number; years: number; packs: number; exclusivity: boolean; sublicensable: boolean; }
+export function quoteIPOffer(state: GameState, ipId: string, terms: Omit<IPOfferTerms, 'ipId'>): { feeM: number; error?: string } {
+  const ip = (state.externalIPs || []).find(i => i.id === ipId);
+  if (!ip) return { feeM: 0, error: 'IP not found.' };
+  return { feeM: quoteIPLicenseFee(ip, terms) };
+}
+
+// Generate one inbound IP offer, targeting the player. Called periodically by tickWeek.
+export function generateInboundIPOffer(state: GameState): GameState {
+  const ips = (state.externalIPs || []).filter(ip => !ip.exclusiveLicenseeStudioId);
+  if (!ips.length) return state;
+  // Skip IPs the player already has an active license on (don't double-up).
+  const myActive = (state.ownedIPLicenses || []).filter(l => l.studioId === state.player.id);
+  const myActiveIpIds = new Set(myActive.map(l => l.ipId));
+  const candidates = ips.filter(ip => !myActiveIpIds.has(ip.id));
+  if (!candidates.length) return state;
+  const ip = candidates[randInt(0, candidates.length - 1)];
+  const licensor = (state.externalLicensors || []).find(l => l.id === ip.licensorId);
+  if (!licensor) return state;
+
+  // AI proposes terms scaled to the IP's popularity.
+  const years = randInt(2, 6);
+  const packs = randInt(1, 4);
+  const exclusivity = ip.popularity >= 70 ? Math.random() < 0.4 : Math.random() < 0.2;
+  const sublicensable = Math.random() < 0.25;
+  const boPercent = +(2 + Math.random() * 6).toFixed(1);   // 2–8%
+  const merchPercent = +(8 + Math.random() * 14).toFixed(1); // 8–22%
+  const feeM = quoteIPLicenseFee(ip, { years, packs, boPercent, merchPercent, exclusivity, sublicensable });
+
+  const offer: import('./types').ExternalIPOffer = {
+    id: uid('ipo_'),
+    fromStudioId: licensor.id, // store licensor in fromStudioId
+    toStudioId: state.player.id,
+    round: 0, maxRounds: 3,
+    lastActor: 'from',
+    status: 'pending',
+    createdWeek: state.week, createdYear: state.year,
+    history: [{ actor: 'from', priceB: feeM / 1000, week: state.week, year: state.year }],
+    ipId: ip.id,
+    feeM, boPercent, merchPercent, years, packs, exclusivity, sublicensable,
+  };
+  const news = [{ week: state.week, year: state.year, text: `📜 ${licensor.name} offers ${state.player.name} the ${ip.name} IP rights — ${packs} films / ${years}y / $${feeM.toFixed(1)}M.` }, ...state.newsLog].slice(0, 100);
+  return { ...state, externalIPOffers: [...(state.externalIPOffers || []), offer], newsLog: news };
+}
+
+export function counterIPOffer(state: GameState, offerId: string, counter: { feeM?: number; boPercent?: number; merchPercent?: number; years?: number; packs?: number; exclusivity?: boolean; sublicensable?: boolean }): { state: GameState; error?: string } {
+  const offerIdx = (state.externalIPOffers || []).findIndex(o => o.id === offerId);
+  if (offerIdx < 0) return { state, error: 'Offer not found.' };
+  const offer = state.externalIPOffers![offerIdx];
+  if (offer.status !== 'pending') return { state, error: 'Offer not pending.' };
+  // Apply counter (player→licensor) and run AI auto-evaluation.
+  const newTerms = {
+    feeM: counter.feeM ?? offer.feeM,
+    boPercent: counter.boPercent ?? offer.boPercent,
+    merchPercent: counter.merchPercent ?? offer.merchPercent,
+    years: counter.years ?? offer.years,
+    packs: counter.packs ?? offer.packs,
+    exclusivity: counter.exclusivity ?? offer.exclusivity,
+    sublicensable: counter.sublicensable ?? offer.sublicensable,
+  };
+  const ip = state.externalIPs!.find(i => i.id === offer.ipId)!;
+  const fairFee = quoteIPLicenseFee(ip, newTerms);
+  // AI accepts if player's fee ≥ 88% of fair AND BO/merch within 1.5pp of fair.
+  const playerFairBo = 2 + (ip.popularity / 100) * 5;
+  const playerFairMerch = 8 + (ip.popularity / 100) * 12;
+  const aiHappy = newTerms.feeM >= fairFee * 0.88 && newTerms.boPercent >= playerFairBo - 1.5 && newTerms.merchPercent >= playerFairMerch - 2;
+  const offers = state.externalIPOffers!.slice();
+  if (aiHappy) {
+    offers[offerIdx] = { ...offer, ...newTerms, status: 'pending', round: offer.round + 1, lastActor: 'to', history: [...offer.history, { actor: 'to', priceB: newTerms.feeM / 1000, week: state.week, year: state.year }] };
+    return { state: { ...state, externalIPOffers: offers, newsLog: [{ week: state.week, year: state.year, text: `📜 ${ip.name} licensor agrees to revised terms — accept to finalise.` }, ...state.newsLog].slice(0, 100) } };
+  } else {
+    // AI counters back: split the difference toward fair price.
+    const aiCounter = {
+      ...newTerms,
+      feeM: +((newTerms.feeM + fairFee) / 2).toFixed(1),
+      boPercent: +((newTerms.boPercent + playerFairBo) / 2).toFixed(1),
+      merchPercent: +((newTerms.merchPercent + playerFairMerch) / 2).toFixed(1),
+    };
+    offers[offerIdx] = { ...offer, ...aiCounter, status: 'pending', round: offer.round + 2, lastActor: 'from', history: [...offer.history, { actor: 'to', priceB: newTerms.feeM / 1000, week: state.week, year: state.year }, { actor: 'from', priceB: aiCounter.feeM / 1000, week: state.week, year: state.year }] };
+    return { state: { ...state, externalIPOffers: offers } };
+  }
+}
+
+export function acceptIPOffer(state: GameState, offerId: string): { state: GameState; error?: string } {
+  const offerIdx = (state.externalIPOffers || []).findIndex(o => o.id === offerId);
+  if (offerIdx < 0) return { state, error: 'Offer not found.' };
+  const offer = state.externalIPOffers![offerIdx];
+  if (offer.status !== 'pending') return { state, error: 'Offer not pending.' };
+  if (state.player.cash * 1000 < offer.feeM) return { state, error: `Need $${offer.feeM.toFixed(1)}M cash (have $${(state.player.cash * 1000).toFixed(1)}M).` };
+  const ip = state.externalIPs!.find(i => i.id === offer.ipId)!;
+  const license: import('./types').OwnedIPLicense = {
+    id: uid('ipl_'),
+    ipId: ip.id,
+    studioId: state.player.id,
+    feePaidM: offer.feeM,
+    boPercent: offer.boPercent,
+    merchPercent: offer.merchPercent,
+    signedWeek: state.week, signedYear: state.year,
+    expiresWeek: state.week, expiresYear: state.year + offer.years,
+    packs: offer.packs, packsUsed: 0,
+    exclusivity: offer.exclusivity, sublicensable: offer.sublicensable,
+  };
+  const offers = state.externalIPOffers!.slice();
+  offers[offerIdx] = { ...offer, status: 'accepted' };
+  let externalIPs = state.externalIPs!;
+  if (offer.exclusivity) {
+    externalIPs = externalIPs.map(i => i.id === ip.id ? { ...i, exclusiveLicenseeStudioId: state.player.id } : i);
+  }
+  const updatedPlayer = { ...state.player, cash: +(state.player.cash - offer.feeM / 1000).toFixed(3) };
+  const news = [{ week: state.week, year: state.year, text: `✅ ${state.player.name} licenses ${ip.name} from ${state.externalLicensors!.find(l => l.id === ip.licensorId)?.name} — ${offer.packs} films / ${offer.years}y${offer.exclusivity ? ' (EXCLUSIVE)' : ''}.` }, ...state.newsLog].slice(0, 100);
+  return { state: { ...state, externalIPOffers: offers, externalIPs, ownedIPLicenses: [...(state.ownedIPLicenses || []), license], player: updatedPlayer, newsLog: news } };
+}
+
+export function rejectIPOffer(state: GameState, offerId: string): { state: GameState } {
+  const offers = (state.externalIPOffers || []).map(o => o.id === offerId ? { ...o, status: 'rejected' as const } : o);
+  return { state: { ...state, externalIPOffers: offers } };
+}
+
+// =====================================================================
+// EXTERNAL IP LICENSING — OUTBOUND (player lists franchise/movie for spin-offs)
+// =====================================================================
+export function createOutboundIPListing(state: GameState, args: { sourceFranchiseId?: string; sourceMovieId?: string; category: import('./types').IPCategory }): { state: GameState; error?: string; listingId?: string } {
+  if (!args.sourceFranchiseId && !args.sourceMovieId) return { state, error: 'Pick a franchise or movie.' };
+  if (args.sourceFranchiseId) {
+    const fr = state.franchises.find(f => f.id === args.sourceFranchiseId);
+    if (!fr) return { state, error: 'Franchise not found.' };
+    if (fr.studioId !== state.player.id) return { state, error: 'Only your own franchise can be listed.' };
+  }
+  if (args.sourceMovieId) {
+    const m = state.movies.find(mm => mm.id === args.sourceMovieId);
+    if (!m) return { state, error: 'Movie not found.' };
+    if (m.studioId !== state.player.id) return { state, error: 'Only your own movie can be listed.' };
+  }
+  const listing: import('./types').OutboundIPListing = {
+    id: uid('out_'),
+    studioId: state.player.id,
+    sourceFranchiseId: args.sourceFranchiseId,
+    sourceMovieId: args.sourceMovieId,
+    category: args.category,
+    status: 'open',
+    createdWeek: state.week, createdYear: state.year,
+  };
+  const news = [{ week: state.week, year: state.year, text: `📤 ${state.player.name} lists IP for ${args.category} spin-offs — bids invited.` }, ...state.newsLog].slice(0, 100);
+  return { state: { ...state, outboundIPListings: [...(state.outboundIPListings || []), listing], newsLog: news }, listingId: listing.id };
+}
+
+export function generateOutboundBid(state: GameState): GameState {
+  const open = (state.outboundIPListings || []).filter(l => l.status === 'open');
+  if (!open.length) return state;
+  // Pick a random open listing
+  const listing = open[randInt(0, open.length - 1)];
+  // Find a licensor in the same category
+  const matchingLicensors = (state.externalLicensors || []).filter(l => l.category === listing.category);
+  if (!matchingLicensors.length) return state;
+  const licensor = matchingLicensors[randInt(0, matchingLicensors.length - 1)];
+  // Compute source attractiveness
+  let popBase = 50;
+  if (listing.sourceFranchiseId) {
+    const fr = state.franchises.find(f => f.id === listing.sourceFranchiseId);
+    if (fr) popBase = fr.popularity;
+  } else if (listing.sourceMovieId) {
+    const m = state.movies.find(mm => mm.id === listing.sourceMovieId);
+    if (m) popBase = Math.min(95, 30 + Math.min(60, m.boxOffice * 12) + (m.criticScore || 60) * 0.2);
+  }
+  const years = randInt(2, 6);
+  const feeM = +((popBase / 100) * 30 * (1 + (years - 1) * 0.18) * (licensor.reputation / 80)).toFixed(1);
+  const royaltyPercent = +(2 + Math.random() * 6).toFixed(1);
+  const bid: import('./types').OutboundIPBid = {
+    id: uid('bid_'),
+    listingId: listing.id,
+    licensorId: licensor.id,
+    feeM, royaltyPercent, years,
+    status: 'pending',
+    createdWeek: state.week, createdYear: state.year,
+  };
+  const news = [{ week: state.week, year: state.year, text: `📥 ${licensor.name} bids on your IP listing — $${feeM.toFixed(1)}M + ${royaltyPercent}% royalty / ${years}y.` }, ...state.newsLog].slice(0, 100);
+  return { ...state, outboundIPBids: [...(state.outboundIPBids || []), bid], newsLog: news };
+}
+
+export function acceptOutboundBid(state: GameState, bidId: string): { state: GameState; error?: string } {
+  const bid = (state.outboundIPBids || []).find(b => b.id === bidId);
+  if (!bid) return { state, error: 'Bid not found.' };
+  if (bid.status !== 'pending') return { state, error: 'Bid not pending.' };
+  const listing = (state.outboundIPListings || []).find(l => l.id === bid.listingId);
+  if (!listing) return { state, error: 'Listing not found.' };
+  // Pay upfront fee, set up royalty queue
+  const updatedPlayer = { ...state.player, cash: +(state.player.cash + bid.feeM / 1000).toFixed(3) };
+  // Royalty: paid quarterly; estimate per-payment as feeM × royalty% / 4 each quarter for `years`.
+  const perPaymentM = +((bid.feeM * bid.royaltyPercent / 100) / 4).toFixed(2);
+  const royEntry = {
+    bidId: bid.id,
+    nextPayWeek: Math.min(WEEKS_PER_YEAR, state.week + 13),
+    nextPayYear: state.year,
+    perPaymentM,
+    expiresWeek: state.week, expiresYear: state.year + bid.years,
+  };
+  // Update bids: this one accepted, others on same listing rejected.
+  const bids = (state.outboundIPBids || []).map(b => {
+    if (b.id === bid.id) return { ...b, status: 'accepted' as const };
+    if (b.listingId === bid.listingId && b.status === 'pending') return { ...b, status: 'rejected' as const };
+    return b;
+  });
+  const listings = (state.outboundIPListings || []).map(l => l.id === listing.id ? { ...l, status: 'closed' as const } : l);
+  const queue = [...(state.outboundRoyaltyQueue || []), royEntry];
+  const licensor = state.externalLicensors!.find(l => l.id === bid.licensorId);
+  const news = [{ week: state.week, year: state.year, text: `✅ Sold ${listing.category} rights to ${licensor?.name} — $${bid.feeM.toFixed(1)}M + ${bid.royaltyPercent}% royalty.` }, ...state.newsLog].slice(0, 100);
+  return { state: { ...state, outboundIPBids: bids, outboundIPListings: listings, outboundRoyaltyQueue: queue, player: updatedPlayer, newsLog: news } };
+}
+
+export function rejectOutboundBid(state: GameState, bidId: string): { state: GameState } {
+  const bids = (state.outboundIPBids || []).map(b => b.id === bidId ? { ...b, status: 'rejected' as const } : b);
+  return { state: { ...state, outboundIPBids: bids } };
+}
+
+// Process royalty payments weekly.
+export function processOutboundRoyalties(state: GameState): GameState {
+  const q = state.outboundRoyaltyQueue || [];
+  if (!q.length) return state;
+  const nowTotal = state.year * WEEKS_PER_YEAR + state.week;
+  let cashAdd = 0;
+  const news: { week: number; year: number; text: string }[] = [];
+  const updated = q.map((e: any) => {
+    const dueTotal = e.nextPayYear * WEEKS_PER_YEAR + e.nextPayWeek;
+    if (dueTotal > nowTotal) return e;
+    const expTotal = e.expiresYear * WEEKS_PER_YEAR + e.expiresWeek;
+    if (dueTotal > expTotal) return null; // expired
+    cashAdd += e.perPaymentM;
+    news.push({ week: state.week, year: state.year, text: `💵 IP royalty payment received: $${e.perPaymentM.toFixed(2)}M.` });
+    // Schedule next quarterly payment (~13 weeks)
+    let nw = e.nextPayWeek + 13, ny = e.nextPayYear;
+    while (nw > WEEKS_PER_YEAR) { nw -= WEEKS_PER_YEAR; ny += 1; }
+    return { ...e, nextPayWeek: nw, nextPayYear: ny };
+  }).filter((x: any) => x !== null) as typeof q;
+  if (cashAdd === 0 && updated.length === q.length) return state;
+  const player = { ...state.player, cash: +(state.player.cash + cashAdd / 1000).toFixed(3) };
+  return { ...state, player, outboundRoyaltyQueue: updated, newsLog: [...news, ...state.newsLog].slice(0, 100) };
+}
+

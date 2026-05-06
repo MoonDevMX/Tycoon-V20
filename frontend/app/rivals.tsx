@@ -23,6 +23,7 @@ export default function Rivals() {
   const [pickSvcId, setPickSvcId] = useState<string | null>(null);
   const [pickYears, setPickYears] = useState('3');
   const [pickedMovieIds, setPickedMovieIds] = useState<string[]>([]);
+  const [pickExclusive, setPickExclusive] = useState(false);
   if (!state) return null;
 
   const playerSvcs = (state.streamingServices || []).filter(svc => svc.studioId === state.player.id);
@@ -258,11 +259,22 @@ export default function Rivals() {
 
                 {fair > 0 ? (
                   <View style={s.quoteBox}>
-                    <Text style={s.quoteLbl}>OPENING OFFER</Text>
-                    <Text style={s.quoteVal}>${opening.toFixed(2)}B</Text>
-                    <Text style={s.quoteSub}>Fair value: ${fair.toFixed(2)}B · Cash: ${cashB.toFixed(2)}B</Text>
+                    <Text style={s.quoteLbl}>OPENING OFFER {pickExclusive ? '· EXCLUSIVE' : ''}</Text>
+                    <Text style={s.quoteVal}>${(opening * (pickExclusive ? 1.6 : 1)).toFixed(2)}B</Text>
+                    <Text style={s.quoteSub}>Fair value: ${(fair * (pickExclusive ? 1.6 : 1)).toFixed(2)}B · Cash: ${cashB.toFixed(2)}B</Text>
                   </View>
                 ) : null}
+
+                <View style={{ flexDirection: 'row', marginTop: 8 }}>
+                  <TouchableOpacity
+                    style={[s.bulkBtn, { flex: 1 }, pickExclusive && { backgroundColor: T.yellow + '33', borderColor: T.yellow }]}
+                    onPress={() => setPickExclusive(v => !v)}
+                    testID="pick-exclusive-toggle"
+                  >
+                    <MaterialCommunityIcons name={pickExclusive ? 'lock' : 'lock-open-variant-outline'} size={16} color={pickExclusive ? T.yellow : T.textDim} />
+                    <Text style={[s.bulkTxt, pickExclusive && { color: T.yellow }]}>{pickExclusive ? 'EXCLUSIVE (×1.6 fee, strips other svcs)' : 'Non-exclusive'}</Text>
+                  </TouchableOpacity>
+                </View>
 
                 <TouchableOpacity
                   style={[s.signBtn, (pickedMovieIds.length === 0 || yrs < 1) && { opacity: 0.5 }]}
@@ -271,9 +283,11 @@ export default function Rivals() {
                     if (!pickRivalId || !pickSvcId) return;
                     if (pickedMovieIds.length === 0) { uiAlert('Pick films', 'Select at least one film.'); return; }
                     if (yrs < 1 || yrs > 10) { uiAlert('Invalid Years', 'Years must be 1–10.'); return; }
-                    const result = proposeBulkCatalogLicense({ toRivalStudioId: pickRivalId, movieIds: pickedMovieIds, priceB: opening, years: yrs, serviceId: pickSvcId });
+                    const finalPrice = +(opening * (pickExclusive ? 1.6 : 1)).toFixed(3);
+                    const result = proposeBulkCatalogLicense({ toRivalStudioId: pickRivalId, movieIds: pickedMovieIds, priceB: finalPrice, years: yrs, serviceId: pickSvcId, exclusivity: pickExclusive });
                     if (result.error) { uiAlert('Failed', result.error); return; }
                     setPickRivalId(null);
+                    setPickExclusive(false);
                     if (result.offerId) setActiveCatalogId(result.offerId);
                   }}
                   testID="pick-propose-btn"

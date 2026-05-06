@@ -60,6 +60,8 @@ export interface StreamingService {
   licensedMovies?: LicensedMovie[];
   // Bulk multi-year licensing deals — auto-license rival's future releases.
   bulkLicenseDeals?: BulkLicenseDeal[];
+  // Income from outbound IP royalties (paid quarterly).
+  outboundRoyaltyQueue?: { bidId: string; nextPayWeek: number; nextPayYear: number; perPaymentM: number; expiresWeek: number; expiresYear: number }[];
 }
 
 export interface BulkLicenseDeal {
@@ -208,6 +210,9 @@ export interface Movie {
   userDescription?: string;
   // Festival lot reference — if this movie was sold at a festival, tie-back for UI.
   festivalLotId?: string;
+  // External IP attached at creation time (uses one of the studio's owned IP licenses).
+  externalIPId?: string;
+  ipLicenseId?: string;        // OwnedIPLicense.id used when this movie was made
 }
 
 export interface Studio {
@@ -257,6 +262,16 @@ export interface GameState {
   franchiseOffers?: FranchiseOffer[];
   // NEW: Bulk catalog licensing offers (existing movies, pay once for N titles for M years).
   bulkCatalogOffers?: BulkCatalogOffer[];
+  // External IP licensing (inbound: agencies → studios)
+  externalLicensors?: ExternalLicensor[];
+  externalIPs?: ExternalIP[];
+  externalIPOffers?: ExternalIPOffer[];   // pending inbound offers
+  ownedIPLicenses?: OwnedIPLicense[];     // accepted IP licenses owned by any studio
+  // Outbound IP listings (player → external agencies)
+  outboundIPListings?: OutboundIPListing[];
+  outboundIPBids?: OutboundIPBid[];
+  // Player-only royalty payment schedule from outbound IP deals.
+  outboundRoyaltyQueue?: { bidId: string; nextPayWeek: number; nextPayYear: number; perPaymentM: number; expiresWeek: number; expiresYear: number }[];
   // Festivals scheduled / in progress / archived (NEW)
   festivals?: Festival[];
   // Cinema distribution deals per region (player-only tracked; AI implicit) (NEW)
@@ -291,6 +306,82 @@ export interface BulkCatalogOffer extends BaseTradeOffer {
   priceB: number;              // lump-sum fee in $B
   years: number;               // license term length
   serviceId?: string;          // destination streaming service (for player-outgoing and for AI-to-player offers: player's service)
+  exclusivity?: boolean;       // when accepted, strips movies from any other streaming service catalog
+}
+
+// ---------------- EXTERNAL IP LICENSING ----------------
+export type IPCategory = 'book' | 'video_game' | 'toy' | 'sports' | 'comic' | 'music';
+
+export interface ExternalLicensor {
+  id: string;
+  name: string;            // "Mythos Publishing", "Apex Games"
+  category: IPCategory;
+  reputation: number;      // 0..100 — drives IP popularity baseline & price
+}
+
+export interface ExternalIP {
+  id: string;
+  name: string;            // "The Crimson Mage", "Galaxy Riders"
+  licensorId: string;
+  category: IPCategory;
+  popularity: number;      // 0..100 — boost magnitude for movies built on this IP
+  // Studio that holds the (currently active) exclusive license for this IP, if any.
+  exclusiveLicenseeStudioId?: string;
+}
+
+export interface ExternalIPOffer extends BaseTradeOffer {
+  ipId: string;
+  feeM: number;            // upfront license fee in $M
+  boPercent: number;       // 0..15 — share of player movie BO that goes to licensor
+  merchPercent: number;    // 0..30 — share of merchandising revenue (estimated cut)
+  years: number;           // 1..10 term length
+  packs: number;           // # of films allowed under this license (1..10)
+  exclusivity: boolean;    // when true, no other studio can license this IP for the term
+  sublicensable: boolean;  // when true, licensee may sublicense to rivals (out of scope this iteration)
+  // Player is always the toStudioId for inbound (licensor → studio); fromStudioId stores the licensor.
+  // This object is identified as IP-related vs franchise/streaming via being in state.externalIPOffers.
+}
+
+export interface OwnedIPLicense {
+  id: string;
+  ipId: string;
+  studioId: string;        // licensee
+  feePaidM: number;
+  boPercent: number;
+  merchPercent: number;
+  signedWeek: number;
+  signedYear: number;
+  expiresWeek: number;
+  expiresYear: number;
+  packs: number;
+  packsUsed: number;
+  exclusivity: boolean;
+  sublicensable: boolean;
+}
+
+// ---------------- OUTBOUND IP LICENSING ----------------
+// Player offers their own franchise/movie for spin-off products (games, books, toys, etc.).
+export interface OutboundIPListing {
+  id: string;
+  studioId: string;        // owner (player)
+  sourceFranchiseId?: string;
+  sourceMovieId?: string;
+  category: IPCategory;    // type of spin-off product being offered
+  status: 'open' | 'closed';
+  createdWeek: number;
+  createdYear: number;
+}
+
+export interface OutboundIPBid {
+  id: string;
+  listingId: string;
+  licensorId: string;      // external company making the bid
+  feeM: number;
+  royaltyPercent: number;  // ongoing royalty paid quarterly to studio
+  years: number;
+  status: 'pending' | 'accepted' | 'rejected';
+  createdWeek: number;
+  createdYear: number;
 }
 
 // ---------------- FESTIVALS ----------------

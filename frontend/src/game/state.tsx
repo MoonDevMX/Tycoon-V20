@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { GameState, Talent, Gender, Movie } from './types';
-import { newGame, simulateWeek as simWeek, simulateMultiple as simMulti, tickWeek, createMovie as createMov, launchPlayerStreamingService as launchSvc, updatePlayerStreamingService as updateSvc, deletePlayerStreamingService as deleteSvc, addMovieToStreaming as addToStream, removeMovieFromStreaming as removeFromStream, hireTalent as hireT, fireTalent as fireT, calculateTalentExpectations, calculateAcceptance, licenseMovieToStreaming as licenseStream, renewLicense as renewLic, setMovieReleaseDate as setRelDate, holdMovie as holdMov, setMarketingAllocation as setMktAlloc, computeLicenseFee, acceptLicenseOffer as acceptLO, counterLicenseOffer as counterLO, rejectLicenseOffer as rejectLO, signNegotiatedContract as signNeg, placeFestivalBid as bidFest, signCinemaDeal as signCine, setMovieDescription as setMovDesc, signBulkLicenseDeal as signBLD, quoteBulkLicenseDeal as quoteBLD, signFranchiseBulkLicense as signFBL, quoteFranchiseBulkLicense as quoteFBL, proposeFranchiseTrade as propFr, acceptFranchiseOffer as accFr, counterFranchiseOffer as cntFr, rejectFranchiseOffer as rejFr, quoteFranchiseValue as qFr, proposeBulkCatalogLicense as propBC, acceptBulkCatalogOffer as accBC, counterBulkCatalogOffer as cntBC, rejectBulkCatalogOffer as rejBC, quoteBulkCatalogValue as qBC, LaunchStreamingArgs, HireTalentArgs, LicenseMovieArgs, BulkLicenseDealParams, FranchiseBulkLicenseParams } from './sim';
+import { newGame, simulateWeek as simWeek, simulateMultiple as simMulti, tickWeek, createMovie as createMov, launchPlayerStreamingService as launchSvc, updatePlayerStreamingService as updateSvc, deletePlayerStreamingService as deleteSvc, addMovieToStreaming as addToStream, removeMovieFromStreaming as removeFromStream, hireTalent as hireT, fireTalent as fireT, calculateTalentExpectations, calculateAcceptance, licenseMovieToStreaming as licenseStream, renewLicense as renewLic, setMovieReleaseDate as setRelDate, holdMovie as holdMov, setMarketingAllocation as setMktAlloc, computeLicenseFee, acceptLicenseOffer as acceptLO, counterLicenseOffer as counterLO, rejectLicenseOffer as rejectLO, signNegotiatedContract as signNeg, placeFestivalBid as bidFest, signCinemaDeal as signCine, setMovieDescription as setMovDesc, signBulkLicenseDeal as signBLD, quoteBulkLicenseDeal as quoteBLD, signFranchiseBulkLicense as signFBL, quoteFranchiseBulkLicense as quoteFBL, proposeFranchiseTrade as propFr, acceptFranchiseOffer as accFr, counterFranchiseOffer as cntFr, rejectFranchiseOffer as rejFr, quoteFranchiseValue as qFr, proposeBulkCatalogLicense as propBC, acceptBulkCatalogOffer as accBC, counterBulkCatalogOffer as cntBC, rejectBulkCatalogOffer as rejBC, quoteBulkCatalogValue as qBC, acceptIPOffer as accIP, counterIPOffer as cntIP, rejectIPOffer as rejIP, quoteIPOffer as qIP, createOutboundIPListing as createOL, acceptOutboundBid as accOB, rejectOutboundBid as rejOB, LaunchStreamingArgs, HireTalentArgs, LicenseMovieArgs, BulkLicenseDealParams, FranchiseBulkLicenseParams } from './sim';
 import { FranchiseOfferKind } from './types';
 import { GENRES } from './data';
 
@@ -108,12 +108,20 @@ type Ctx = {
   quoteBulkLicenseDeal: (p: BulkLicenseDealParams) => { feeM: number; error?: string };
   signFranchiseBulkLicense: (p: FranchiseBulkLicenseParams) => { error?: string; feeM?: number };
   quoteFranchiseBulkLicense: (p: FranchiseBulkLicenseParams) => { feeM: number; error?: string; movieCount?: number };
+  // External IP licensing
+  acceptIPOffer: (offerId: string) => { error?: string };
+  counterIPOffer: (offerId: string, terms: { feeM?: number; boPercent?: number; merchPercent?: number; years?: number; packs?: number; exclusivity?: boolean; sublicensable?: boolean }) => { error?: string };
+  rejectIPOffer: (offerId: string) => void;
+  quoteIPOffer: (ipId: string, terms: { feeM: number; boPercent: number; merchPercent: number; years: number; packs: number; exclusivity: boolean; sublicensable: boolean }) => { feeM: number; error?: string };
+  createOutboundIPListing: (args: { sourceFranchiseId?: string; sourceMovieId?: string; category: import('./types').IPCategory }) => { error?: string; listingId?: string };
+  acceptOutboundBid: (bidId: string) => { error?: string };
+  rejectOutboundBid: (bidId: string) => void;
   proposeFranchiseTrade: (args: { franchiseId: string; kind: FranchiseOfferKind; priceB: number }) => { error?: string; offerId?: string };
   acceptFranchiseOffer: (offerId: string) => { error?: string };
   counterFranchiseOffer: (offerId: string, newPriceB: number) => { error?: string };
   rejectFranchiseOffer: (offerId: string) => void;
   quoteFranchiseValue: (franchiseId: string) => number;
-  proposeBulkCatalogLicense: (args: { toRivalStudioId: string; movieIds: string[]; priceB: number; years: number; serviceId: string }) => { error?: string; offerId?: string };
+  proposeBulkCatalogLicense: (args: { toRivalStudioId: string; movieIds: string[]; priceB: number; years: number; serviceId: string; exclusivity?: boolean }) => { error?: string; offerId?: string };
   acceptBulkCatalogOffer: (offerId: string) => { error?: string };
   counterBulkCatalogOffer: (offerId: string, newPriceB: number) => { error?: string };
   rejectBulkCatalogOffer: (offerId: string) => void;
@@ -383,6 +391,44 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       quoteFranchiseBulkLicense: (p: FranchiseBulkLicenseParams) => {
         if (!state) return { feeM: 0, error: 'No game.' };
         return quoteFBL(state, p);
+      },
+      acceptIPOffer: (offerId: string) => {
+        if (!state) return { error: 'No game.' };
+        const r = accIP(state, offerId);
+        if (!r.error) { setStateInner(r.state); persist(r.state); }
+        return { error: r.error };
+      },
+      counterIPOffer: (offerId, terms) => {
+        if (!state) return { error: 'No game.' };
+        const r = cntIP(state, offerId, terms);
+        if (!r.error) { setStateInner(r.state); persist(r.state); }
+        return { error: r.error };
+      },
+      rejectIPOffer: (offerId: string) => {
+        if (!state) return;
+        const r = rejIP(state, offerId);
+        setStateInner(r.state); persist(r.state);
+      },
+      quoteIPOffer: (ipId, terms) => {
+        if (!state) return { feeM: 0, error: 'No game.' };
+        return qIP(state, ipId, terms);
+      },
+      createOutboundIPListing: (args) => {
+        if (!state) return { error: 'No game.' };
+        const r = createOL(state, args);
+        if (!r.error) { setStateInner(r.state); persist(r.state); }
+        return { error: r.error, listingId: r.listingId };
+      },
+      acceptOutboundBid: (bidId: string) => {
+        if (!state) return { error: 'No game.' };
+        const r = accOB(state, bidId);
+        if (!r.error) { setStateInner(r.state); persist(r.state); }
+        return { error: r.error };
+      },
+      rejectOutboundBid: (bidId: string) => {
+        if (!state) return;
+        const r = rejOB(state, bidId);
+        setStateInner(r.state); persist(r.state);
       },
       proposeFranchiseTrade: (args) => {
         if (!state) return { error: 'No game.' };

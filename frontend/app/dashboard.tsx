@@ -217,6 +217,22 @@ export default function Dashboard() {
             testID="cinemas-btn"
           />
         </View>
+        <View style={{ flexDirection: 'row', paddingHorizontal: 12, marginTop: 8, gap: 8 }}>
+          <GreyButton
+            label="External IP"
+            sublabel={(() => {
+              const inb = (state.externalIPOffers || []).filter(o => o.status === 'pending').length;
+              const myL = (state.ownedIPLicenses || []).filter(l => l.studioId === player.id).length;
+              const bidPending = (state.outboundIPBids || []).filter(b => b.status === 'pending').length;
+              return `${inb} offer${inb !== 1 ? 's' : ''} · ${myL} licensed · ${bidPending} bid${bidPending !== 1 ? 's' : ''}`;
+            })()}
+            onPress={() => router.push('/external-ip' as any)}
+            style={{ flex: 1 }}
+            icon="book-open-page-variant"
+            iconColor={T.magenta}
+            testID="external-ip-btn"
+          />
+        </View>
         <View style={{ paddingHorizontal: 12, marginTop: 6 }}>
           {(() => {
             const playerId = state.player.id;
