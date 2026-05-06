@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { GameState, Talent, Gender, Movie } from './types';
-import { newGame, simulateWeek as simWeek, simulateMultiple as simMulti, tickWeek, createMovie as createMov, launchPlayerStreamingService as launchSvc, updatePlayerStreamingService as updateSvc, deletePlayerStreamingService as deleteSvc, addMovieToStreaming as addToStream, removeMovieFromStreaming as removeFromStream, hireTalent as hireT, fireTalent as fireT, calculateTalentExpectations, calculateAcceptance, licenseMovieToStreaming as licenseStream, renewLicense as renewLic, setMovieReleaseDate as setRelDate, holdMovie as holdMov, setMarketingAllocation as setMktAlloc, computeLicenseFee, acceptLicenseOffer as acceptLO, counterLicenseOffer as counterLO, rejectLicenseOffer as rejectLO, signNegotiatedContract as signNeg, placeFestivalBid as bidFest, signCinemaDeal as signCine, setMovieDescription as setMovDesc, signBulkLicenseDeal as signBLD, quoteBulkLicenseDeal as quoteBLD, signFranchiseBulkLicense as signFBL, quoteFranchiseBulkLicense as quoteFBL, proposeFranchiseTrade as propFr, acceptFranchiseOffer as accFr, counterFranchiseOffer as cntFr, rejectFranchiseOffer as rejFr, quoteFranchiseValue as qFr, proposeBulkCatalogLicense as propBC, acceptBulkCatalogOffer as accBC, counterBulkCatalogOffer as cntBC, rejectBulkCatalogOffer as rejBC, quoteBulkCatalogValue as qBC, acceptIPOffer as accIP, counterIPOffer as cntIP, rejectIPOffer as rejIP, quoteIPOffer as qIP, createOutboundIPListing as createOL, acceptOutboundBid as accOB, rejectOutboundBid as rejOB, LaunchStreamingArgs, HireTalentArgs, LicenseMovieArgs, BulkLicenseDealParams, FranchiseBulkLicenseParams } from './sim';
+import { newGame, simulateWeek as simWeek, simulateMultiple as simMulti, tickWeek, createMovie as createMov, launchPlayerStreamingService as launchSvc, updatePlayerStreamingService as updateSvc, deletePlayerStreamingService as deleteSvc, addMovieToStreaming as addToStream, setMovieTierAccess as setTierAcc, removeMovieFromStreaming as removeFromStream, hireTalent as hireT, fireTalent as fireT, calculateTalentExpectations, calculateAcceptance, licenseMovieToStreaming as licenseStream, renewLicense as renewLic, setMovieReleaseDate as setRelDate, holdMovie as holdMov, setMarketingAllocation as setMktAlloc, computeLicenseFee, acceptLicenseOffer as acceptLO, counterLicenseOffer as counterLO, rejectLicenseOffer as rejectLO, signNegotiatedContract as signNeg, placeFestivalBid as bidFest, signCinemaDeal as signCine, setMovieDescription as setMovDesc, signBulkLicenseDeal as signBLD, quoteBulkLicenseDeal as quoteBLD, signFranchiseBulkLicense as signFBL, quoteFranchiseBulkLicense as quoteFBL, proposeFranchiseTrade as propFr, acceptFranchiseOffer as accFr, counterFranchiseOffer as cntFr, rejectFranchiseOffer as rejFr, quoteFranchiseValue as qFr, proposeBulkCatalogLicense as propBC, acceptBulkCatalogOffer as accBC, counterBulkCatalogOffer as cntBC, rejectBulkCatalogOffer as rejBC, quoteBulkCatalogValue as qBC, acceptIPOffer as accIP, counterIPOffer as cntIP, rejectIPOffer as rejIP, quoteIPOffer as qIP, createOutboundIPListing as createOL, acceptOutboundBid as accOB, rejectOutboundBid as rejOB, LaunchStreamingArgs, HireTalentArgs, LicenseMovieArgs, BulkLicenseDealParams, FranchiseBulkLicenseParams } from './sim';
 import { FranchiseOfferKind } from './types';
 import { GENRES } from './data';
 
@@ -88,7 +88,8 @@ type Ctx = {
   launchStreamingService: (args: LaunchStreamingArgs) => { error?: string };
   updateStreamingService: (id: string, patch: Parameters<typeof updateSvc>[2]) => { error?: string };
   deleteStreamingService: (id: string) => { error?: string };
-  addMovieToStreaming: (serviceId: string, movieId: string) => { error?: string };
+  addMovieToStreaming: (serviceId: string, movieId: string, tierIds?: string[]) => { error?: string };
+  setMovieTierAccess: (serviceId: string, movieId: string, tierIds: string[]) => { error?: string };
   removeMovieFromStreaming: (serviceId: string, movieId: string) => void;
   hireTalent: (args: HireTalentArgs) => { error?: string; accepted?: boolean };
   fireTalent: (talentId: string) => { error?: string };
@@ -238,9 +239,19 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     return { error: r.error };
   }, [state, persist]);
 
-  const addMovieToStreaming = useCallback((serviceId: string, movieId: string) => {
+  const addMovieToStreaming = useCallback((serviceId: string, movieId: string, tierIds?: string[]) => {
     if (!state) return { error: 'No game.' };
-    const r = addToStream(state, serviceId, movieId);
+    const r = addToStream(state, serviceId, movieId, tierIds);
+    if (!r.error) {
+      setStateInner(r.state);
+      persist(r.state);
+    }
+    return { error: r.error };
+  }, [state, persist]);
+
+  const setMovieTierAccess = useCallback((serviceId: string, movieId: string, tierIds: string[]) => {
+    if (!state) return { error: 'No game.' };
+    const r = setTierAcc(state, serviceId, movieId, tierIds);
     if (!r.error) {
       setStateInner(r.state);
       persist(r.state);
@@ -328,7 +339,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   return (
     <GameCtx.Provider value={{
       state, loading, startNewGame, resetGame, save, setState, simulateWeek, simulateMultiple, createMovie,
-      launchStreamingService, updateStreamingService, deleteStreamingService, addMovieToStreaming, removeMovieFromStreaming,
+      launchStreamingService, updateStreamingService, deleteStreamingService, addMovieToStreaming, setMovieTierAccess, removeMovieFromStreaming,
       hireTalent, fireTalent, licenseMovieToStreaming, renewLicense, setMovieReleaseDate, holdMovie, setMarketingAllocation,
       acceptOffer: (offerId: string) => {
         if (!state) return { error: 'No game.' };

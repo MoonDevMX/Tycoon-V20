@@ -763,7 +763,7 @@ export function holdMovie(state: GameState, movieId: string): { state: GameState
   return { state: { ...state, movies } };
 }
 
-export function addMovieToStreaming(state: GameState, serviceId: string, movieId: string): { state: GameState; error?: string } {
+export function addMovieToStreaming(state: GameState, serviceId: string, movieId: string, tierIds?: string[]): { state: GameState; error?: string } {
   const svcIdx = (state.streamingServices || []).findIndex(s => s.id === serviceId && s.studioId === state.player.id);
   if (svcIdx < 0) return { state, error: 'Service not found.' };
   const movie = state.movies.find(m => m.id === movieId);
@@ -773,9 +773,30 @@ export function addMovieToStreaming(state: GameState, serviceId: string, movieId
   const cur = { ...services[svcIdx], catalogMovieIds: [...services[svcIdx].catalogMovieIds] };
   if (cur.catalogMovieIds.includes(movieId)) return { state, error: 'Title already on this service.' };
   cur.catalogMovieIds.push(movieId);
+  // Per-movie tier access: if specified (and non-empty subset), record. Empty/undefined = visible to all tiers.
+  if (tierIds && tierIds.length && tierIds.length < cur.tiers.length) {
+    cur.movieTierAccess = { ...(cur.movieTierAccess || {}), [movieId]: [...tierIds] };
+  }
   services[svcIdx] = cur;
   const updatedMovies = state.movies.map(m => m.id === movieId ? { ...m, inStreamingServiceIds: [...(m.inStreamingServiceIds || []), serviceId] } : m);
   return { state: { ...state, streamingServices: services, movies: updatedMovies } };
+}
+
+// Update which tiers can stream a movie already in the catalog. Empty array = remove restriction (all tiers).
+export function setMovieTierAccess(state: GameState, serviceId: string, movieId: string, tierIds: string[]): { state: GameState; error?: string } {
+  const svcIdx = (state.streamingServices || []).findIndex(s => s.id === serviceId && s.studioId === state.player.id);
+  if (svcIdx < 0) return { state, error: 'Service not found.' };
+  const cur = state.streamingServices[svcIdx];
+  if (!cur.catalogMovieIds.includes(movieId)) return { state, error: 'Title not in this catalog.' };
+  const services = state.streamingServices.slice();
+  const next = { ...cur, movieTierAccess: { ...(cur.movieTierAccess || {}) } };
+  if (!tierIds.length || tierIds.length >= cur.tiers.length) {
+    delete next.movieTierAccess[movieId];
+  } else {
+    next.movieTierAccess[movieId] = [...tierIds];
+  }
+  services[svcIdx] = next;
+  return { state: { ...state, streamingServices: services } };
 }
 
 export function removeMovieFromStreaming(state: GameState, serviceId: string, movieId: string): { state: GameState } {

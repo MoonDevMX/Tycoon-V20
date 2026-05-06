@@ -30,7 +30,7 @@ function fmtSubs(n: number): string {
 export default function StreamingDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { state, updateStreamingService, deleteStreamingService, addMovieToStreaming, removeMovieFromStreaming, licenseMovieToStreaming, renewLicense } = useGame();
+  const { state, updateStreamingService, deleteStreamingService, addMovieToStreaming, setMovieTierAccess, removeMovieFromStreaming, licenseMovieToStreaming, renewLicense } = useGame();
   const [editingService, setEditingService] = useState(false);
   const [draftName, setDraftName] = useState('');
   const [draftIsExclusive, setDraftIsExclusive] = useState(false);
@@ -41,6 +41,12 @@ export default function StreamingDetail() {
   const [licenseMovieId, setLicenseMovieId] = useState<string | null>(null);
   const [licenseYears, setLicenseYears] = useState<1 | 3 | 5 | 10>(3);
   const [licenseTierIds, setLicenseTierIds] = useState<string[]>([]);
+  // Per-movie tier picker for ADDING owned movies to catalog
+  const [addMovieId, setAddMovieId] = useState<string | null>(null);
+  const [addTierIds, setAddTierIds] = useState<string[]>([]);
+  // Per-movie tier picker for EDITING tier access on existing catalog movies
+  const [editTierMovieId, setEditTierMovieId] = useState<string | null>(null);
+  const [editTierIds, setEditTierIds] = useState<string[]>([]);
 
   const svc = useMemo(() => state ? (state.streamingServices || []).find(s => s.id === id) : null, [state, id]);
   const studio = useMemo(() => state && svc ? [state.player, ...state.rivals].find(st => st.id === svc.studioId) : null, [state, svc]);
@@ -283,8 +289,9 @@ export default function StreamingDetail() {
             <TouchableOpacity
               style={s.addBtn}
               onPress={() => {
-                const r = addMovieToStreaming(svc.id, m.id);
-                if (r.error) notify('Cannot add', r.error);
+                // Open tier picker — default = all tiers
+                setAddMovieId(m.id);
+                setAddTierIds(svc.tiers.map(t => t.id));
               }}
               testID={`add-catalog-${m.id}`}
             >
@@ -369,6 +376,11 @@ export default function StreamingDetail() {
           <Text style={s.empty}>No titles in catalog yet.</Text>
         ) : catalogMovies.map(m => {
           const isExcl = (editingService ? draftExclusiveMovies : (svc.exclusiveMovieIds || [])).includes(m.id);
+          const access = svc.movieTierAccess?.[m.id];
+          const tierAccessLabel = !access || !access.length || access.length >= svc.tiers.length
+            ? 'All tiers'
+            : access.map(tid => svc.tiers.find(t => t.id === tid)?.name || '?').join(' · ');
+          const isOwned = m.studioId === state.player.id;
           return (
             <TouchableOpacity key={m.id} style={s.movieRow} onPress={() => router.push(`/movie/${m.id}`)}>
               <View style={[s.movieIcon, { backgroundColor: m.iconBg }]}>
@@ -377,7 +389,21 @@ export default function StreamingDetail() {
               <View style={{ flex: 1, paddingHorizontal: 8 }}>
                 <Text style={s.movieTitle} numberOfLines={1}>{m.title}{isExcl ? ' ★' : ''}</Text>
                 <Text style={s.movieSub}>Y{m.releaseYear} · {m.brand} · Critic {m.criticScore}</Text>
+                <Text style={[s.movieSub, { color: T.cyan }]} numberOfLines={1}>📺 {tierAccessLabel}</Text>
               </View>
+              {isMine && !editingService && isOwned && (
+                <TouchableOpacity
+                  onPress={(e) => {
+                    e.stopPropagation?.();
+                    setEditTierMovieId(m.id);
+                    setEditTierIds(access && access.length ? [...access] : svc.tiers.map(t => t.id));
+                  }}
+                  style={s.tierEditBtn}
+                  testID={`edit-tier-access-${m.id}`}
+                >
+                  <MaterialCommunityIcons name="layers-edit" size={16} color={T.cyan} />
+                </TouchableOpacity>
+              )}
               {isMine && editingService && (
                 <TouchableOpacity onPress={() => toggleMovieExclusive(m.id)} style={[s.iconBtn, { borderColor: isExcl ? T.yellow : T.border }]} testID={`excl-movie-${m.id}`}>
                   <MaterialCommunityIcons name={isExcl ? 'star' : 'star-outline'} size={16} color={T.yellow} />
@@ -454,6 +480,105 @@ export default function StreamingDetail() {
           </View>
         );
       })()}
+      {/* Add-to-catalog tier picker modal */}
+      {addMovieId && (() => {
+        const m = state.movies.find(mm => mm.id === addMovieId);
+        if (!m) return null;
+        const allSelected = addTierIds.length === svc.tiers.length;
+        return (
+          <View style={s.modalBg}>
+            <View style={s.modalCard}>
+              <Text style={s.modalTitle}>Add "{m.title}"</Text>
+              <Text style={s.modalSub}>Choose which subscription tiers can stream this movie. Premium subscribers see Premium+; Standard sees Standard+Basic; Basic only sees Basic.</Text>
+              <Text style={s.modalLabel}>Quick Picks</Text>
+              <View style={s.tierToggleRow}>
+                <TouchableOpacity style={[s.tierToggle, allSelected && { backgroundColor: T.cyan, borderColor: T.cyan }]}
+                  onPress={() => setAddTierIds(svc.tiers.map(t => t.id))} testID="add-quick-all">
+                  <Text style={[s.tierToggleT, allSelected && { color: T.cardDark }]}>All Tiers</Text>
+                </TouchableOpacity>
+                {svc.tiers.length >= 2 && (() => {
+                  const sorted = [...svc.tiers].sort((a, b) => b.price - a.price);
+                  const top = sorted[0];
+                  return (
+                    <TouchableOpacity style={[s.tierToggle, addTierIds.length === 1 && addTierIds[0] === top.id && { backgroundColor: T.yellow, borderColor: T.yellow }]}
+                      onPress={() => setAddTierIds([top.id])} testID="add-quick-top">
+                      <Text style={[s.tierToggleT, addTierIds.length === 1 && addTierIds[0] === top.id && { color: T.cardDark }]}>{top.name}-only</Text>
+                    </TouchableOpacity>
+                  );
+                })()}
+              </View>
+              <Text style={s.modalLabel}>Custom (modular)</Text>
+              <View style={s.tierToggleRow}>
+                {svc.tiers.map(t => {
+                  const active = addTierIds.includes(t.id);
+                  return (
+                    <TouchableOpacity key={t.id}
+                      style={[s.tierToggle, active && { backgroundColor: T.green, borderColor: T.green }]}
+                      onPress={() => setAddTierIds(prev => prev.includes(t.id) ? prev.filter(x => x !== t.id) : [...prev, t.id])}
+                      testID={`add-tier-${t.id}`}>
+                      <Text style={[s.tierToggleT, active && { color: T.cardDark }]}>{t.name} {active ? '✓' : ''}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
+                <TouchableOpacity style={[s.actionBtn, { backgroundColor: T.card, flex: 1 }]} onPress={() => setAddMovieId(null)} testID="cancel-add-tiers">
+                  <Text style={[s.actionTxt, { color: T.text }]}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[s.actionBtn, { backgroundColor: T.green, flex: 1 }]}
+                  onPress={() => {
+                    if (!addTierIds.length) { notify('Pick at least one tier', 'Select where this movie should be available.'); return; }
+                    const r = addMovieToStreaming(svc.id, addMovieId, addTierIds);
+                    if (r.error) notify('Cannot add', r.error);
+                    else setAddMovieId(null);
+                  }} testID="confirm-add-tiers">
+                  <Text style={[s.actionTxt, { color: T.cardDark }]}>Add to Catalog</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        );
+      })()}
+
+      {/* Edit-tier-access modal for catalog movies */}
+      {editTierMovieId && (() => {
+        const m = state.movies.find(mm => mm.id === editTierMovieId);
+        if (!m) return null;
+        return (
+          <View style={s.modalBg}>
+            <View style={s.modalCard}>
+              <Text style={s.modalTitle}>"{m.title}" — Tier Access</Text>
+              <Text style={s.modalSub}>Toggle which tiers can stream this title. Empty = visible to all tiers.</Text>
+              <View style={[s.tierToggleRow, { marginTop: 10 }]}>
+                {svc.tiers.map(t => {
+                  const active = editTierIds.includes(t.id);
+                  return (
+                    <TouchableOpacity key={t.id}
+                      style={[s.tierToggle, active && { backgroundColor: T.green, borderColor: T.green }]}
+                      onPress={() => setEditTierIds(prev => prev.includes(t.id) ? prev.filter(x => x !== t.id) : [...prev, t.id])}
+                      testID={`edit-tier-${t.id}`}>
+                      <Text style={[s.tierToggleT, active && { color: T.cardDark }]}>{t.name} {active ? '✓' : ''}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
+                <TouchableOpacity style={[s.actionBtn, { backgroundColor: T.card, flex: 1 }]} onPress={() => setEditTierMovieId(null)}>
+                  <Text style={[s.actionTxt, { color: T.text }]}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[s.actionBtn, { backgroundColor: T.cyan, flex: 1 }]}
+                  onPress={() => {
+                    const r = setMovieTierAccess(svc.id, editTierMovieId, editTierIds);
+                    if (r.error) notify('Cannot save', r.error);
+                    else setEditTierMovieId(null);
+                  }} testID="save-tier-access">
+                  <Text style={[s.actionTxt, { color: T.cardDark }]}>Save</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        );
+      })()}
     </SafeAreaView>
   );
 }
@@ -512,6 +637,7 @@ const s = StyleSheet.create({
   addBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: T.green, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, gap: 2 },
   addBtnTxt: { color: T.cardDark, fontWeight: '900', fontSize: 12 },
   removeBtn: { padding: 4 },
+  tierEditBtn: { padding: 6, borderRadius: 6, borderWidth: 1.5, borderColor: T.cyan, backgroundColor: T.card, marginRight: 4 },
   empty: { color: T.textMute, padding: 16, fontStyle: 'italic', textAlign: 'center' },
   iconBtn: { padding: 6, borderRadius: 8, borderWidth: 2, borderColor: T.cyan, backgroundColor: T.card },
   editSection: { paddingHorizontal: 12, paddingVertical: 6, gap: 6 },
