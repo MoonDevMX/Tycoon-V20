@@ -40,8 +40,9 @@ function generateBalancedTalentPool(): Talent[] {
         if (r < 0.3) { ageMin = 22; ageMax = 32; }
         else if (r < 0.8) { ageMin = 33; ageMax = 55; }
         else { ageMin = 56; ageMax = 72; }
-        // Skill skews by age (veterans tend to be more skilled, top stars exist at all ages)
-        const baseSkill = ageMax > 55 ? 65 : ageMax > 32 ? 58 : 52;
+        // Realistic skill spread: rookies start low; veterans are usually better but not guaranteed.
+        // Bell-curve in genTalent ensures most cluster mid; few are elite (the 90+ rare).
+        const baseSkill = ageMax > 55 ? 45 : ageMax > 32 ? 35 : 28;
         pool.push(genTalent(role, { ageMin, ageMax, color, skillMin: baseSkill, skillMax: 95 }) as Talent);
       }
     });
@@ -223,8 +224,8 @@ export function newGame(playerName: string, logoIdx: number): GameState {
                : randInt(50, 200);
     return {
       id: uid('s_'), name: n, logoBg: logo.bg, logoIcon: logo.icon,
-      cash, totalBO: randInt(80, 600),
-      releases: randInt(40, 220), awards: randInt(60, 800),
+      cash, totalBO: 0,           // computed from seeded movies in seedHistory
+      releases: 0, awards: 0,     // computed from seeded movies in seedHistory
       rating, isPlayer: false,
     };
   });
@@ -235,8 +236,12 @@ export function newGame(playerName: string, logoIdx: number): GameState {
   const franchises: Franchise[] = [];
   const usedFranchiseNames = new Set<string>();
   rivals.forEach(r => {
-    const n = randInt(2, 4);
-    for (let i = 0; i < n; i++) {
+    // Bigger studios get more franchises (rating-scaled). Range: 4–14 per studio.
+    const fcount = r.rating >= 5 ? randInt(10, 14)
+                 : r.rating >= 4 ? randInt(7, 12)
+                 : r.rating >= 3 ? randInt(5, 9)
+                 : randInt(4, 7);
+    for (let i = 0; i < fcount; i++) {
       const g = pick(GENRES);
       const fname = genFranchiseName(usedFranchiseNames);
       usedFranchiseNames.add(fname);
@@ -285,12 +290,12 @@ export function newGame(playerName: string, logoIdx: number): GameState {
     };
   });
 
-  const START_YEAR = 11; // 10 years of industry history are seeded before Day 1
+  const START_YEAR = 51; // Game starts at year 51 → 50 years of industry history seeded before Day 1
   const ipSeed = seedExternalLicensors();
   const seeded = seedHistory({
     initialized: true, week: 1, year: START_YEAR, player, rivals,
     movies: [], talents, franchises, audience, relationships, streamingServices,
-    newsLog: [{ week: 1, year: START_YEAR, text: `${player.name} opens its doors. The lights are on across 15 studios industry-wide. ${streamingServices.length} streaming rivals are already broadcasting.` }],
+    newsLog: [{ week: 1, year: START_YEAR, text: `${player.name} opens its doors. The industry has 50 years of history, ${streamingServices.length} streaming services online.` }],
     externalLicensors: ipSeed.licensors,
     externalIPs: ipSeed.ips,
     externalIPOffers: [],
@@ -302,18 +307,19 @@ export function newGame(playerName: string, logoIdx: number): GameState {
   return generateInboundIPOffer(seeded);
 }
 
-// Pre-populate ~10 in-game years of AI-released movies so the world feels alive on Day 1.
-// Each rival franchise gets 1-3 retroactive films at random earlier weeks. Movies are
-// fully formed (cast, crew, BO, reviews) but dated in the past so the player joins
-// a mature industry rather than an empty one.
+// Pre-populate ~50 in-game years of AI-released movies so the world feels truly mature on Day 1.
+// Each rival's franchise gets 3-10 retroactive films across decades; bigger studios get more
+// franchises and more standalone originals. Movies are fully formed (cast, crew, BO, reviews)
+// but dated in the past so the player joins a deep industry, not an empty one.
 function seedHistory(s: GameState): GameState {
   const movies: Movie[] = [];
   const usedTitles = new Set<string>();
-  const HISTORY_YEARS = 10;
+  const HISTORY_YEARS = 50;
   for (const r of s.rivals) {
     const myFranchises = s.franchises.filter(f => f.studioId === r.id);
-    // Independent originals: 4-8 standalone movies in the past 10y
-    const originalsCount = randInt(4, 8);
+    // Independent originals across 50y — bigger studios release more.
+    const ratingMult = 0.5 + (r.rating - 1) * 0.45; // rating 1 → 0.5, rating 5 → 2.3
+    const originalsCount = Math.round(randInt(20, 45) * ratingMult);
     for (let i = 0; i < originalsCount; i++) {
       const yearOffset = randInt(-(HISTORY_YEARS - 1), -1);
       const yr = s.year + yearOffset;
@@ -321,9 +327,9 @@ function seedHistory(s: GameState): GameState {
       const m = makeHistoricMovie(s, r.id, undefined, wk, yr, usedTitles);
       if (m) { movies.push(m); }
     }
-    // Franchise titles: 1-3 movies per franchise
+    // Franchise titles: 3-10 movies per franchise spread across 50y
     for (const fr of myFranchises) {
-      const count = randInt(1, 3);
+      const count = randInt(3, 10);
       const slots = Array.from({ length: count }, () => ({
         yearOffset: randInt(-(HISTORY_YEARS - 1), -1),
         week: randInt(1, WEEKS_PER_YEAR),
@@ -339,25 +345,25 @@ function seedHistory(s: GameState): GameState {
           fr.movieIds.push(m.id);
           fr.lastReleasedWeek = slot.week;
           fr.lastReleasedYear = yr;
-          // Boost franchise popularity per hit
           if (m.criticScore >= 75) fr.popularity = Math.min(100, fr.popularity + 3);
           movies.push(m);
         }
       }
     }
-    // Update rival career stats from seeded movies
+    // Recompute rival career stats from actual seeded movies (coherence guarantee — no more inflated random numbers)
     const myMovies = movies.filter(mm => mm.studioId === r.id);
     const totalBO = myMovies.reduce((a, b) => a + b.boxOffice, 0);
+    const totalAwards = myMovies.reduce((a, b) => a + (b.awards || 0), 0);
     const idx = s.rivals.findIndex(rr => rr.id === r.id);
     if (idx >= 0) {
-      s.rivals[idx] = { ...r, releases: r.releases + myMovies.length, totalBO: +(r.totalBO + totalBO).toFixed(3) };
+      s.rivals[idx] = { ...r, releases: myMovies.length, totalBO: +totalBO.toFixed(3), awards: totalAwards };
     }
   }
-  // Seed each rival streaming service catalog with 5-15 of their owner's released movies (newest first)
+  // Seed each rival streaming service catalog with 15-40 of their owner's released movies (newest first)
   const seededServices = s.streamingServices.map(svc => {
     const ownerMovies = movies.filter(m => m.studioId === svc.studioId).sort((a, b) => (b.releaseYear * 100 + b.releaseWeek) - (a.releaseYear * 100 + a.releaseWeek));
-    const take = ownerMovies.slice(0, randInt(5, 15)).map(m => m.id);
-    return { ...svc, catalogMovieIds: take, launchedYear: s.year - randInt(2, 6) };
+    const take = ownerMovies.slice(0, randInt(15, 40)).map(m => m.id);
+    return { ...svc, catalogMovieIds: take, launchedYear: s.year - randInt(3, 12) };
   });
   // Mark which movies are in streaming
   for (const svc of seededServices) {
@@ -674,7 +680,13 @@ export function renewLicense(state: GameState, serviceId: string, movieId: strin
   const wksLeft = (license.expiresYear - state.year) * WEEKS_PER_YEAR + (license.expiresWeek - state.week);
   const totalWks = license.yearsLicensed * WEEKS_PER_YEAR;
   const isEarly = wksLeft > totalWks / 2;
-  const baseFee = computeLicenseFee(movie, additionalYears, state.week, state.year);
+  const owner = state.rivals.find(r => r.id === movie.studioId);
+  const fr = movie.franchiseId ? state.franchises.find(f => f.id === movie.franchiseId) : undefined;
+  const baseFee = computeLicenseFee(movie, additionalYears, state.week, state.year, {
+    exclusivity: !!license.exclusivity,
+    ownerRating: owner?.rating,
+    franchisePopularity: fr?.popularity,
+  });
   const fee = +(baseFee * (isEarly ? 0.75 : 1.0)).toFixed(2);
   const feeB = fee / 1000;
   if (state.player.cash < feeB) return { state, error: `Need $${fee.toFixed(1)}M renewal fee.`, fee };
@@ -696,9 +708,11 @@ export function renewLicense(state: GameState, serviceId: string, movieId: strin
   return { state: { ...state, player: updatedPlayer, streamingServices: services, newsLog }, fee };
 }
 
-// License fee calculation for licensing other studios' movies into your streaming service
-// Based on movie box office, critic score, age, and license duration.
-export function computeLicenseFee(movie: Movie, yearsLicensed: number, currentWeek: number, currentYear: number): number {
+// License fee calculation for licensing other studios' movies into your streaming service.
+// Standardized formula used across ALL licensing surfaces (movie page, franchise page,
+// streaming detail, rivals catalog packs, IP, etc.) for fee consistency.
+// Factors: BO base × critic mult × age decay × duration × studio reputation × exclusivity × franchise popularity.
+export function computeLicenseFee(movie: Movie, yearsLicensed: number, currentWeek: number, currentYear: number, opts?: { exclusivity?: boolean; ownerRating?: number; franchisePopularity?: number }): number {
   const ageWeeks = (currentYear - movie.releaseYear) * WEEKS_PER_YEAR + (currentWeek - movie.releaseWeek);
   const ageYears = Math.max(0, ageWeeks / WEEKS_PER_YEAR);
   // Base fee scales with movie BO + critic score
@@ -707,8 +721,14 @@ export function computeLicenseFee(movie: Movie, yearsLicensed: number, currentWe
   // Older movies are cheaper
   const ageDecay = Math.max(0.25, 1 - ageYears * 0.12);
   const yearMult = yearsLicensed; // linear scaling per year
-  // ~3% of BO per year * critic mult * age decay
-  const fee = baseBO * 0.03 * yearMult * criticMult * ageDecay;
+  // Reputation multiplier — bigger studios charge more.
+  const repMult = opts?.ownerRating ? 0.85 + (opts.ownerRating - 1) * 0.15 : 1.0; // rating 1→0.85, 5→1.45
+  // Exclusivity premium.
+  const exclMult = opts?.exclusivity ? 1.6 : 1.0;
+  // Franchise popularity bonus (when licensing inside a famous franchise).
+  const popMult = opts?.franchisePopularity ? 0.85 + (opts.franchisePopularity / 100) * 0.5 : 1.0;
+  // ~3% of BO per year * critic mult * age decay * rep mult * excl mult * franchise pop mult
+  const fee = baseBO * 0.03 * yearMult * criticMult * ageDecay * repMult * exclMult * popMult;
   return Math.max(2, +fee.toFixed(2));
 }
 
@@ -716,6 +736,7 @@ export interface LicenseMovieArgs {
   movieId: string;
   yearsLicensed: number; // 1, 3, 5, 10
   tierIds: string[];     // tiers where the licensed title is available; empty = all tiers
+  exclusivity?: boolean; // negotiated exclusivity flag — multiplies fee 1.6×
 }
 
 export function licenseMovieToStreaming(state: GameState, serviceId: string, args: LicenseMovieArgs): { state: GameState; error?: string; fee?: number } {
@@ -732,7 +753,13 @@ export function licenseMovieToStreaming(state: GameState, serviceId: string, arg
   const existingLicense = (cur.licensedMovies || []).find(l => l.movieId === args.movieId);
   if (existingLicense) return { state, error: 'Already licensed on this service.' };
 
-  const fee = computeLicenseFee(movie, args.yearsLicensed, state.week, state.year);
+  const owner = state.rivals.find(r => r.id === movie.studioId);
+  const fr = movie.franchiseId ? state.franchises.find(f => f.id === movie.franchiseId) : undefined;
+  const fee = computeLicenseFee(movie, args.yearsLicensed, state.week, state.year, {
+    exclusivity: !!args.exclusivity,
+    ownerRating: owner?.rating,
+    franchisePopularity: fr?.popularity,
+  });
   const feeB = fee / 1000;
   if (state.player.cash < feeB) return { state, error: `Need $${fee.toFixed(1)}M license fee (have $${(state.player.cash * 1000).toFixed(1)}M).`, fee };
 
@@ -746,6 +773,7 @@ export function licenseMovieToStreaming(state: GameState, serviceId: string, arg
     expiresWeek: expW, expiresYear: expY,
     tierIds: [...args.tierIds],
     feePaid: fee, yearsLicensed: args.yearsLicensed,
+    exclusivity: !!args.exclusivity,
   }];
   cur.catalogMovieIds = cur.catalogMovieIds.includes(args.movieId) ? cur.catalogMovieIds : [...cur.catalogMovieIds, args.movieId];
   // Map per-tier access if specified

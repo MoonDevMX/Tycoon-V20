@@ -190,10 +190,16 @@ export function genName(gender?: Gender): string {
 }
 
 export function genTalent(role: Role, opts: { skillMin?: number; skillMax?: number; ageMin?: number; ageMax?: number; gender?: Gender; color?: ColorTrait } = {}) {
-  const skill = randInt(opts.skillMin ?? 55, opts.skillMax ?? 92);
-  const fame = randInt(10, 80);
+  // Bell-curve skill: average of 3 random samples → most talents cluster mid-range, few elite.
+  const lo = opts.skillMin ?? 30;
+  const hi = opts.skillMax ?? 95;
+  const bell = (Math.random() + Math.random() + Math.random()) / 3; // 0..1, peaks at 0.5
+  const skill = Math.round(lo + bell * (hi - lo));
+  // Fame is independent of skill — most are obscure, few are stars.
+  const fameBell = (Math.random() + Math.random()) / 2;
+  const fame = Math.round(5 + fameBell * 80); // 5..85, peaks ~45
   const base = role === 'writer' ? 4 : role === 'director' ? 7 : 6;
-  const salary = +(base + (skill - 55) * 0.18 + (fame - 10) * 0.12 + Math.random() * 4).toFixed(2);
+  const salary = +(base + (skill - 30) * 0.14 + (fame - 5) * 0.10 + Math.random() * 3).toFixed(2);
   const age = randInt(opts.ageMin ?? 24, opts.ageMax ?? 58);
   // Gender: actor=male, actress=female; writer/director = override or 50/50
   let gender: Gender;
@@ -498,22 +504,33 @@ export function nudgeRelInPlace(rels: Record<string, number>, a: string, b: stri
 // Reviews — procedural 5-star + 6 sources (3 audience + 3 critic)
 const AUDIENCE_SOURCES = ['CineCrowd', 'PopcornVote', 'StreamWatch'];
 const CRITIC_SOURCES = ['The Reel', 'Lens & Frame', 'Backlot Daily'];
-const QUOTES_HIGH = ['A staggering, generation-defining piece.', 'Electrifying performances throughout.', 'Pure cinematic magic.', 'Will be talked about for years.', 'A triumph in every frame.'];
-const QUOTES_MID = ['Solid, if uneven in places.', 'Hits more often than it misses.', 'A workmanlike effort with bright spots.', 'Watchable, sometimes inspired.'];
-const QUOTES_LOW = ['Misses the mark badly.', 'A disappointing slog.', 'Forgettable from the opening reel.', 'A waste of a strong premise.'];
+const QUOTES_HIGH = ['A staggering, generation-defining piece.', 'Electrifying performances throughout.', 'Pure cinematic magic.', 'Will be talked about for years.', 'A triumph in every frame.', 'A masterclass in storytelling.', 'Unmissable. Awards-worthy.', 'Soars on every level.', 'A genuine modern classic.', 'Remarkable, transcendent, essential.'];
+const QUOTES_GOOD = ['Confident, sharp, well-crafted.', 'A rewarding, smartly-paced ride.', 'Strong direction lifts the material.', 'Charming and surprisingly tender.', 'Punches above its weight.', 'Pleasingly assured filmmaking.'];
+const QUOTES_MID = ['Solid, if uneven in places.', 'Hits more often than it misses.', 'A workmanlike effort with bright spots.', 'Watchable, sometimes inspired.', 'Competent but never quite soars.', 'Some scenes work, others don\'t.', 'Polished, but not memorable.'];
+const QUOTES_WEAK = ['Drags whenever the lead is offscreen.', 'A film of half-formed ideas.', 'Promising premise, sloppy execution.', 'Tonally adrift for long stretches.', 'Plays its hand far too early.', 'Bland and unconvincing.'];
+const QUOTES_LOW = ['Misses the mark badly.', 'A disappointing slog.', 'Forgettable from the opening reel.', 'A waste of a strong premise.', 'Painfully long, painfully thin.', 'Confused, charmless, careless.', 'Difficult to recommend to anyone.'];
+const QUOTES_TERRIBLE = ['An outright disaster.', 'A career-stalling misfire.', 'Cinematic malpractice.', 'Genuinely difficult to sit through.', 'Inert, incoherent, indefensible.', 'Among the year\'s worst.'];
 export function generateReviews(criticScore: number): { source: string; type: 'audience' | 'critic'; score: number; quote: string }[] {
   const out: { source: string; type: 'audience' | 'critic'; score: number; quote: string }[] = [];
+  const quoteFor = (stars: number): string => {
+    if (stars >= 4.5) return pick(QUOTES_HIGH);
+    if (stars >= 3.5) return pick(QUOTES_GOOD);
+    if (stars >= 2.8) return pick(QUOTES_MID);
+    if (stars >= 2.0) return pick(QUOTES_WEAK);
+    if (stars >= 1.2) return pick(QUOTES_LOW);
+    return pick(QUOTES_TERRIBLE);
+  };
   for (const src of AUDIENCE_SOURCES) {
-    const variance = (Math.random() - 0.5) * 20;
-    const stars = Math.max(0.5, Math.min(5, +((criticScore + variance + 5) / 20).toFixed(1)));
-    const quote = stars >= 4 ? pick(QUOTES_HIGH) : stars >= 2.5 ? pick(QUOTES_MID) : pick(QUOTES_LOW);
-    out.push({ source: src, type: 'audience', score: stars, quote });
+    // Audience is slightly kinder than critics on average (+5), with wider variance.
+    const variance = (Math.random() - 0.5) * 22;
+    const stars = Math.max(0.5, Math.min(5, +((criticScore + variance + 4) / 20).toFixed(1)));
+    out.push({ source: src, type: 'audience', score: stars, quote: quoteFor(stars) });
   }
   for (const src of CRITIC_SOURCES) {
-    const variance = (Math.random() - 0.5) * 18;
-    const stars = Math.max(0.5, Math.min(5, +((criticScore + variance) / 20).toFixed(1)));
-    const quote = stars >= 4 ? pick(QUOTES_HIGH) : stars >= 2.5 ? pick(QUOTES_MID) : pick(QUOTES_LOW);
-    out.push({ source: src, type: 'critic', score: stars, quote });
+    // Critics bias slightly harsher (-2) and lower variance (more consistent panning of bad films).
+    const variance = (Math.random() - 0.5) * 14;
+    const stars = Math.max(0.5, Math.min(5, +((criticScore + variance - 2) / 20).toFixed(1)));
+    out.push({ source: src, type: 'critic', score: stars, quote: quoteFor(stars) });
   }
   return out;
 }
@@ -646,6 +663,14 @@ export function recomputeStreamingSubs(args: {
 }): { totalSubs: number; tierSubs: Record<string, number>; monthlyRevenue: number } {
   const { service, catalogQuality, catalogSize, studioReputation, weeksRunning, exclusiveCount = 0 } = args;
   if (!service.tiers.length) return { totalSubs: 0, tierSubs: {}, monthlyRevenue: 0 };
+  // Empty-catalog services cannot retain any subscribers — they decay to zero quickly.
+  if (catalogSize === 0) {
+    const decayed = Math.round((service.subscribers || 0) * 0.55); // 45% weekly churn when empty
+    if (decayed < 100) return { totalSubs: 0, tierSubs: {}, monthlyRevenue: 0 };
+    const tierSubs: Record<string, number> = {};
+    service.tiers.forEach(t => { tierSubs[t.id] = Math.round(decayed / service.tiers.length); });
+    return { totalSubs: decayed, tierSubs, monthlyRevenue: 0 };
+  }
 
   // Compute per-tier accessible catalog count (for content gating)
   const topTierIdx = service.tiers.length - 1;

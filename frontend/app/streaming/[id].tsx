@@ -41,6 +41,7 @@ export default function StreamingDetail() {
   const [licenseMovieId, setLicenseMovieId] = useState<string | null>(null);
   const [licenseYears, setLicenseYears] = useState<1 | 3 | 5 | 10>(3);
   const [licenseTierIds, setLicenseTierIds] = useState<string[]>([]);
+  const [licenseExclusive, setLicenseExclusive] = useState(false);
   // Per-movie tier picker for ADDING owned movies to catalog
   const [addMovieId, setAddMovieId] = useState<string | null>(null);
   const [addTierIds, setAddTierIds] = useState<string[]>([]);
@@ -427,12 +428,18 @@ export default function StreamingDetail() {
       {licenseMovieId && (() => {
         const m = state.movies.find(mm => mm.id === licenseMovieId);
         if (!m) return null;
-        const fee = computeLicenseFee(m, licenseYears, state.week, state.year);
+        const owner = state.rivals.find(r => r.id === m.studioId);
+        const fr = m.franchiseId ? state.franchises.find(f => f.id === m.franchiseId) : undefined;
+        const fee = computeLicenseFee(m, licenseYears, state.week, state.year, {
+          exclusivity: licenseExclusive,
+          ownerRating: owner?.rating,
+          franchisePopularity: fr?.popularity,
+        });
         return (
           <View style={s.modalBg}>
             <View style={s.modalCard}>
               <Text style={s.modalTitle}>License "{m.title}"</Text>
-              <Text style={s.modalSub}>From {state.rivals.find(r => r.id === m.studioId)?.name}</Text>
+              <Text style={s.modalSub}>From {owner?.name} (rating {owner?.rating || '—'}★) {fr ? `· ${fr.name} (pop ${fr.popularity})` : ''}</Text>
               <Text style={s.modalLabel}>Duration</Text>
               <View style={s.tierToggleRow}>
                 {[1, 3, 5, 10].map(y => (
@@ -442,6 +449,19 @@ export default function StreamingDetail() {
                     <Text style={[s.tierToggleT, licenseYears === y && { color: T.cardDark }]}>{y}y</Text>
                   </TouchableOpacity>
                 ))}
+              </View>
+              <Text style={s.modalLabel}>Exclusivity</Text>
+              <View style={s.tierToggleRow}>
+                <TouchableOpacity
+                  style={[s.tierToggle, !licenseExclusive && { backgroundColor: T.card, borderColor: T.cyan }]}
+                  onPress={() => setLicenseExclusive(false)} testID="license-non-excl">
+                  <Text style={[s.tierToggleT, { color: !licenseExclusive ? T.cyan : T.text }]}>Non-exclusive</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[s.tierToggle, licenseExclusive && { backgroundColor: T.yellow, borderColor: T.yellow }]}
+                  onPress={() => setLicenseExclusive(true)} testID="license-excl">
+                  <Text style={[s.tierToggleT, { color: licenseExclusive ? T.cardDark : T.text }]}>EXCLUSIVE (×1.6)</Text>
+                </TouchableOpacity>
               </View>
               <Text style={s.modalLabel}>Tiers (empty = all)</Text>
               <View style={s.tierToggleRow}>
@@ -457,22 +477,23 @@ export default function StreamingDetail() {
                 })}
               </View>
               <Text style={[s.modalLabel, { color: T.green, fontSize: 18, marginTop: 12 }]}>
-                Fee: ${fee.toFixed(2)}M
+                Fee: ${fee.toFixed(2)}M{licenseExclusive ? ' (exclusive premium)' : ''}
               </Text>
               <Text style={s.modalSub}>Cash: ${(state.player.cash * 1000).toFixed(0)}M</Text>
               <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
-                <TouchableOpacity style={[s.actionBtn, { backgroundColor: T.card, flex: 1 }]} onPress={() => setLicenseMovieId(null)}>
+                <TouchableOpacity style={[s.actionBtn, { backgroundColor: T.card, flex: 1 }]} onPress={() => { setLicenseMovieId(null); setLicenseExclusive(false); }}>
                   <Text style={[s.actionTxt, { color: T.text }]}>Cancel</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[s.actionBtn, { backgroundColor: T.green, flex: 1 }]}
                   onPress={() => {
-                    const r = licenseMovieToStreaming(svc.id, { movieId: licenseMovieId!, yearsLicensed: licenseYears, tierIds: licenseTierIds });
+                    const r = licenseMovieToStreaming(svc.id, { movieId: licenseMovieId!, yearsLicensed: licenseYears, tierIds: licenseTierIds, exclusivity: licenseExclusive });
                     if (r.error) notify('Cannot license', r.error);
                     else {
-                      notify('Licensed!', `${m.title} added for ${licenseYears} years.`);
+                      notify('Licensed!', `${m.title} added for ${licenseYears} years${licenseExclusive ? ' (exclusive)' : ''}.`);
                       setLicenseMovieId(null);
+                      setLicenseExclusive(false);
                     }
-                  }}>
+                  }} testID="confirm-license-deal">
                   <Text style={[s.actionTxt, { color: T.cardDark }]}>Sign Deal</Text>
                 </TouchableOpacity>
               </View>

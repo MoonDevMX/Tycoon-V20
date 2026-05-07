@@ -37,6 +37,7 @@ export interface LicensedMovie {
   tierIds: string[];   // tiers where this licensed title is available; if empty = all tiers
   feePaid: number;     // upfront license fee paid (in $M)
   yearsLicensed: number; // 1, 3, 5, 10
+  exclusivity?: boolean; // negotiated — if true, no other studio could license while active
 }
 
 export interface StreamingService {
