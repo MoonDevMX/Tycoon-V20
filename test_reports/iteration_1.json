@@ -1,0 +1,35 @@
+{
+  "summary": "Frontend smoke + functional test for BetaTycoon V17 Movie Tycoon. Verified setup→dashboard flow, External IP page (Inbound/My Licenses/Outbound tabs), Outbound listing modal, and dashboard navigation tiles. Could not exercise inbound IP COUNTER modal (no offers spawned after 36 simulated weeks) or streaming-detail tier-picker (player has not yet launched a streaming service / has no released owned movies). Default tiers (Basic/Standard/Premium) verified by code review of /app/frontend/src/game/data.ts defaultTiers().",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "External IP — Inbound offers", "issue": "After simulating 36 weeks from a fresh save, zero pending inbound IP offers spawned. Counter modal (c-fee/c-bo/...) could not be exercised. Spawn rate may be too low or gated by progression criteria not yet met. Recommend reducing minimum threshold or seeding 1 offer at game start for UX.", "affected_testIDs": ["accept-ip-*","counter-ip-*","reject-ip-*","c-fee","c-bo","c-merch","c-years","c-packs","c-excl","c-sub","submit-counter"]},
+      {"flow": "Streaming detail per-movie tier picker", "issue": "Could not reach streaming/[id] flow — player must first 'Launch Streaming Service' AND have released owned movies. Not auto-tested in this run. Code review of /app/frontend/app/streaming/[id].tsx confirms presence of testIDs add-quick-all, add-quick-top, add-tier-{tierId}, confirm-add-tiers, cancel-add-tiers, edit-tier-access-{movieId}, edit-tier-{tierId}, save-tier-access — all correctly wired.", "affected_testIDs": ["add-quick-all","add-quick-top","confirm-add-tiers","cancel-add-tiers","edit-tier-access-*","save-tier-access"]},
+      {"flow": "Rivals catalog-pack pick-exclusive-toggle", "issue": "Not exercised in this run (would require navigating rivals → relations → bulk catalog offer flow with sufficient rival relationship + released catalog).", "affected_testIDs": ["pick-exclusive-toggle","pick-propose-btn"]}
+    ],
+    "design_issues": [],
+    "react_native_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Verify inbound IP offer spawn rate in /app/frontend/src/game/sim.ts — 36 weeks produced 0 offers. Either lower threshold, seed 1 starter offer, or document that 50+ weeks may be required.",
+    "Add a 'Launch Streaming Service' testID (e.g., launch-service-btn) on /app/frontend/app/streaming.tsx so the player launch flow is tappable in automation.",
+    "Recommend the main agent self-test the streaming tier-picker modal (add-quick-all / add-tier-* / confirm-add-tiers / edit-tier-access-* / save-tier-access) by manually launching a service and adding an owned released movie. All testIDs are present in code.",
+    "Manually test pick-exclusive-toggle in rivals → bulk catalog offer flow (not reachable in fresh-save smoke test).",
+    "Console: WebSocket /message → 500 (Expo dev hot-reload only, non-blocking) and 'shadow*' style props deprecation warnings — cosmetic, can ignore."
+  ],
+  "critical_code_review_comments": [
+    "defaultTiers() in /app/frontend/src/game/data.ts correctly returns 3 tiers Basic/Standard/Premium at $9.99/$14.99/$19.99 — matches spec.",
+    "/app/frontend/app/streaming/[id].tsx — addMovieToStreaming default sets all tiers selected on open; submit handler in onPress (line ~531) requires non-empty addTierIds and only persists movieTierAccess when fewer than all selected (handled by underlying addMovieToStreaming/setMovieTierAccess in state).",
+    "/app/frontend/app/external-ip.tsx — All required testIDs (tab-inbound, tab-mine, tab-outbound, accept-ip-{id}, counter-ip-{id}, reject-ip-{id}, c-fee, c-bo, c-merch, c-years, c-packs, c-excl, c-sub, submit-counter, create-listing-btn, confirm-listing) are present and correctly wired.",
+    "Dashboard external-ip-btn navigates to '/external-ip' route — confirmed working."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped per request)", "frontend": "60% — navigation + modals verified; spawn-driven flows not reproducible in 36 weeks"},
+  "seed_data_creation": "AsyncStorage save 'mooncinema_save_v8' created in browser via setup screen; studio name 'TestStudio'.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Game starts at splash: tap 'New Studio' → /setup, fill input, tap 'START STUDIO' → /dashboard. To test inbound IP COUNTER modal, simulate 60+ weeks (12-week simulation showed no offers; 36 weeks also empty). To test streaming tier-picker, must first launch a streaming service (testID missing on launch button — find by text 'Launch Streaming Service'), then visit /streaming/[id], use toggle-add-catalog and add-catalog-{movieId} (requires player to have released own movies). For rivals catalog-pack flow, navigate /rivals → tap a rival → relations → propose bulk catalog offer.",
+  "rca_of_issue": "Inbound External IP offers not spawning within 36 simulated weeks. Likely root cause: spawn probability per week in sim.ts is set very low (per agent note: 'External IP offers spawn at low frequency, so simulating ~12+ weeks may be needed'). Mitigation: lower threshold or seed at least 1 pending offer at game start so the COUNTER/ACCEPT/REJECT UI is reachable for testing & onboarding."
+}
