@@ -489,9 +489,30 @@ export function createMovie(state: GameState, args: CreateMovieArgs): { state: G
   const salaries = writerSalary + directorSalary + castSalaries;
   const runtimeFactor = args.runtime / 120;
   const productionCost = +(salaries * runtimeFactor + 8).toFixed(2);
-  const totalBudget = +(productionCost + args.marketingBudget).toFixed(2);
+
+  // CROSSOVER LICENSE FEE — Crossovers with rival-owned franchises require negotiated licensing.
+  // Fee scales with popularity, owner rating and franchise size. This makes crossovers a strategic decision.
+  let crossoverLicenseFee = 0;
+  const crossoverNotes: string[] = [];
+  if (args.brand === 'Crossover' && args.crossoverFranchiseIds?.length) {
+    for (const fid of args.crossoverFranchiseIds) {
+      const fr = state.franchises.find(f => f.id === fid);
+      if (!fr) continue;
+      if (fr.studioId === player.id) continue; // own franchise, free
+      const owner = state.rivals.find(r => r.id === fr.studioId);
+      const rating = owner?.rating || 3;
+      // Base 25M × popularity factor × rating mult × franchise depth
+      const popMult = 0.5 + (fr.popularity / 100) * 1.8;
+      const ratingMult = 0.7 + (rating - 1) * 0.18;
+      const depthMult = 1 + Math.min(0.6, (fr.movieIds.length || 1) * 0.05);
+      const fee = +(25 * popMult * ratingMult * depthMult).toFixed(1);
+      crossoverLicenseFee += fee;
+      crossoverNotes.push(`${fr.name} ($${fee.toFixed(0)}M to ${owner?.name || '?'})`);
+    }
+  }
+  const totalBudget = +(productionCost + args.marketingBudget + crossoverLicenseFee).toFixed(2);
   const totalBudgetB = totalBudget / 1000;
-  if (player.cash < totalBudgetB) return { state, error: `Not enough cash. Need ${totalBudget.toFixed(1)}M (have ${(player.cash * 1000).toFixed(1)}M)` };
+  if (player.cash < totalBudgetB) return { state, error: `Not enough cash. Need $${totalBudget.toFixed(1)}M${crossoverLicenseFee ? ` (incl. $${crossoverLicenseFee.toFixed(0)}M crossover licensing: ${crossoverNotes.join(', ')})` : ''} (have $${(player.cash * 1000).toFixed(1)}M)` };
 
   let franchiseId = args.franchiseId;
   let franchiseName: string | undefined;
@@ -571,11 +592,32 @@ export function createMovie(state: GameState, args: CreateMovieArgs): { state: G
   });
 
   const updatedPlayer = { ...player, cash: +(player.cash - totalBudgetB).toFixed(3) };
+  // Credit rival studios for crossover licensing fees
+  let updatedRivals = state.rivals;
+  let crossoverNewsLog: typeof state.newsLog = [];
+  if (crossoverLicenseFee > 0 && args.crossoverFranchiseIds?.length) {
+    updatedRivals = state.rivals.slice();
+    for (const fid of args.crossoverFranchiseIds) {
+      const fr = state.franchises.find(f => f.id === fid);
+      if (!fr || fr.studioId === player.id) continue;
+      const idx = updatedRivals.findIndex(r => r.id === fr.studioId);
+      if (idx < 0) continue;
+      const owner = updatedRivals[idx];
+      const popMult = 0.5 + (fr.popularity / 100) * 1.8;
+      const ratingMult = 0.7 + (owner.rating - 1) * 0.18;
+      const depthMult = 1 + Math.min(0.6, (fr.movieIds.length || 1) * 0.05);
+      const fee = +(25 * popMult * ratingMult * depthMult).toFixed(1);
+      const feeB = fee / 1000;
+      updatedRivals[idx] = { ...owner, cash: +(owner.cash + feeB).toFixed(3) };
+      crossoverNewsLog.push({ week: state.week, year: state.year, text: `${player.name} pays ${owner.name} $${fee.toFixed(0)}M to license ${fr.name} for crossover.` });
+    }
+  }
   const updatedFranchises = state.franchises.map(f => f.id === franchiseId ? { ...f, movieIds: [...f.movieIds, movie.id] } : f);
   // Bump packsUsed on the IP license, if attached
   let ownedIPLicenses = state.ownedIPLicenses || [];
   if (attachedIP) ownedIPLicenses = ownedIPLicenses.map(l => l.id === attachedIP!.id ? { ...l, packsUsed: l.packsUsed + 1 } : l);
-  return { state: { ...state, player: updatedPlayer, talents: updatedTalents, movies: [...state.movies, movie], franchises: updatedFranchises, ownedIPLicenses }, movie };
+  const newsLog = crossoverNewsLog.length ? [...crossoverNewsLog, ...state.newsLog].slice(0, 100) : state.newsLog;
+  return { state: { ...state, player: updatedPlayer, rivals: updatedRivals, talents: updatedTalents, movies: [...state.movies, movie], franchises: updatedFranchises, ownedIPLicenses, newsLog }, movie };
 }
 
 // ---------- Player streaming service operations ----------

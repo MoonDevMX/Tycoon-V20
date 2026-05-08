@@ -16,15 +16,28 @@ Offline film-studio tycoon game built with Expo Router + React Native. Players r
 - **Backend**: Default FastAPI starter (unused by gameplay)
 
 ## V17 Features Completed (this session)
-0. **Movie/franchise name uniqueness** — `genFranchiseName(existingNames?)` and `genTitleSubtitle(..., existingTitles?)` now retry up to 25× to avoid collisions across the world. Sequels/Prequels/Spinoffs/Crossovers within a franchise still inherit the franchise name (a "reboot" share is allowed only when same franchise). Applied at: rival franchise seeding (newGame), historical movie seeding (seedHistory: passes accumulating `usedTitles` Set), player movie creation (createMovie checks against `state.movies` titles + `state.franchises` names), AI weekly movie creation (tickWeek), festival lot indie movies. Falls back to "{name} Reborn/Resurgence/…" suffix or numeric suffix only when 25 retries all collide (effectively unreachable with current word pool of ~60 nouns × 37 adj).
-1. **Streaming exclusivity for catalog packs** — when player proposes a bulk catalog license to a rival, an `EXCLUSIVE` toggle (`pick-exclusive-toggle` in rivals.tsx) sets `exclusivity` on the offer. On acceptance, those movies are stripped from any other streaming service catalog, and the fee is multiplied 1.6×.
-2. **External IP Licensing (inbound)** — agencies (books, video games, toys, sports, comics, music) periodically pitch IP licenses with negotiable fee, BO%, merch%, term years, packs, exclusivity, and sublicensable flags. Player can ACCEPT / COUNTER / REJECT in `/external-ip` page (Inbound tab). Accepted licenses appear in the My Licenses tab and can be attached to a new movie at creation time for popularity / fame / BO boosts.
-3. **Sublicensing flag** — IP offers carry a `sublicensable: boolean` term so studios can negotiate the right to sub-license to rivals.
-4. **Outbound IP Licensing (sublicense own franchises)** — player lists owned franchises as IP for spin-off products (book / game / toy / sports / comic / music). External agencies bid with upfront + ongoing royalty %; royalties paid quarterly in `processOutboundRoyalties` during `simulateWeek`.
-5. **Streaming tier fix** — three default tiers (Basic / Standard / Premium). Per-movie tier access is now editable from the catalog list:
-    - When adding a player-owned movie to a service catalog, a tier-picker modal opens with quick-picks (All Tiers / Top-tier-only) plus modular toggles per tier.
-    - Each catalog row shows a 📺 tier-access label and a `layers-edit` icon to re-edit at any time via the `setMovieTierAccess` action.
-    - Licensed-in titles already supported tier selection at the license modal.
+0. **Movie/franchise name uniqueness** — `genFranchiseName(existingNames?)` and `genTitleSubtitle(..., existingTitles?)` now retry up to 25× to avoid collisions. Word pool expanded: 200 nouns × 206 adj × 195 propers (~41K base combinations).
+0a. **World coherence pass** — sweeping fixes for inconsistencies:
+   - World now seeds **50 years** of industry history (was 10) — game starts at year 51, not year 11.
+   - **Studio stats are now derived from actual seeded movies** (no more "200 releases / 600 awards" with only 8 movies). `releases`, `totalBO`, `awards` are computed from real data after seedHistory.
+   - Bigger studios get **proportionally more franchises (4–14)** scaled by rating, and **more standalone originals (10–100)**, also rating-scaled.
+   - Each franchise has **3–10 movies** spread across decades (was 1–3).
+   - Streaming services seed with **15–40 catalog titles** (was 5–15) and launched 3–12 years ago (was 2–6).
+   - **Talent calibration**: bell-curve skill distribution (most cluster mid, few elite) instead of flat 55–92 range. Fame independent. Salary recalibrated.
+   - **Reviews calibration**: 6 quote tiers (Terrible / Low / Weak / Mid / Good / High) replacing 3-tier; critics bias 2-pt harsher than audience; bad films now actually get bad reviews.
+   - **Streaming services with empty catalog** lose 45% subs/week and force-zero subs/revenue once catalog stays empty (no more phantom subscribers).
+   - **Standardized license fee formula** with reputation + exclusivity + franchise popularity multipliers across ALL surfaces (movie page, streaming detail, renew, AI quote, auto-license).
+1. **Streaming exclusivity for catalog packs** — pick-exclusive-toggle ×1.6 fee.
+2. **External IP Licensing inbound** — Accept / Counter / Reject with seeded starter offer.
+3. **Sublicensing** — IP `sublicensable` flag in negotiation terms.
+4. **Outbound IP Licensing** — list owned franchises for spin-off bids.
+5. **Streaming tier fix** — 3 default tiers (Basic/Standard/Premium); per-movie tier-access picker for both add-to-catalog AND edit; license modal includes new exclusivity toggle (×1.6).
+6. **Crossovers now require licensing** — when crossover involves a rival's franchise, player pays a dynamically-priced fee = 25M × popMult × ratingMult × depthMult to the franchise owner. Preview shown in create-movie summary; rival cash credited; news log entry generated.
+
+## Known follow-ups (next iteration if requested)
+- Full negotiation UI (counter price + exclusivity rounds) for: streaming licenses, cinema deals, franchise quick-licenses. Currently uses fixed-fee with exclusivity flag instead of multi-round counter.
+- Cinema deal negotiation (currently fixed terms).
+- Movie creator inline talent picker reusing the talent-pool negotiation flow.
 
 ## New / Updated Functions
 - `addMovieToStreaming(state, serviceId, movieId, tierIds?)` — accepts optional tierIds for per-movie gating.

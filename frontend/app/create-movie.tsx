@@ -48,7 +48,26 @@ export default function CreateMovie() {
   }, 0);
   const totalSalaries = (writer?.salary || 0) + (director?.salary || 0) + castDealSums;
   const productionCost = +(totalSalaries * (draft.runtime / 120) + 8).toFixed(2);
-  const totalCost = +(productionCost + draft.marketing).toFixed(2);
+
+  // Crossover licensing fee preview — same formula as sim.ts createMovie.
+  let crossoverFee = 0;
+  const crossoverBreakdown: { name: string; ownerName: string; fee: number }[] = [];
+  if (draft.brand === 'Crossover' && draft.crossoverIds.length) {
+    for (const fid of draft.crossoverIds) {
+      const fr = state.franchises.find(f => f.id === fid);
+      if (!fr) continue;
+      if (fr.studioId === state.player.id) continue;
+      const owner = state.rivals.find(r => r.id === fr.studioId);
+      const rating = owner?.rating || 3;
+      const popMult = 0.5 + (fr.popularity / 100) * 1.8;
+      const ratingMult = 0.7 + (rating - 1) * 0.18;
+      const depthMult = 1 + Math.min(0.6, (fr.movieIds.length || 1) * 0.05);
+      const fee = +(25 * popMult * ratingMult * depthMult).toFixed(1);
+      crossoverFee += fee;
+      crossoverBreakdown.push({ name: fr.name, ownerName: owner?.name || '?', fee });
+    }
+  }
+  const totalCost = +(productionCost + draft.marketing + crossoverFee).toFixed(2);
 
   const chemColors = [writer?.colorTrait, director?.colorTrait, ...allCastTalents.map(t => t.colorTrait)].filter(Boolean) as ColorTrait[];
   const chemBonus = computeChemistryBonus(chemColors);
@@ -355,6 +374,14 @@ export default function CreateMovie() {
           <View style={s.summary}>
             <Text style={s.sumLabel}>Production: {productionCost.toFixed(1)}M</Text>
             <Text style={s.sumLabel}>Marketing: {draft.marketing.toFixed(1)}M</Text>
+            {crossoverFee > 0 && (
+              <>
+                <Text style={[s.sumLabel, { color: T.yellow, marginTop: 6 }]}>Crossover Licensing: {crossoverFee.toFixed(1)}M</Text>
+                {crossoverBreakdown.map(b => (
+                  <Text key={b.name} style={[s.sumLabel, { fontSize: 11, color: T.textMute, marginLeft: 12 }]}>↳ {b.name} → {b.ownerName}: {b.fee.toFixed(0)}M</Text>
+                ))}
+              </>
+            )}
             <Text style={[s.sumLabel, { color: T.green, fontSize: 18 }]}>TOTAL: {totalCost.toFixed(1)}M</Text>
             <Text style={s.cash}>Cash on hand: {(state.player.cash * 1000).toFixed(0)}M</Text>
           </View>
