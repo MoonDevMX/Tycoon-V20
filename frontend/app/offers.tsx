@@ -8,20 +8,39 @@ import { T } from '../src/ui/theme';
 import { TopBar, IconTile, NeonStat, SectionHeader } from '../src/ui/components';
 import { NegotiationModal } from '../src/ui/NegotiationModal';
 import { uiAlert } from '../src/ui/ui-alert';
-import { LicenseOffer, FranchiseOffer, BulkCatalogOffer } from '../src/game/types';
+import { LicenseOffer, FranchiseOffer, BulkCatalogOffer, IPCategory } from '../src/game/types';
+
+const CAT_LABEL: Record<IPCategory, string> = {
+  book: 'Book', video_game: 'Video Game', toy: 'Toy', sports: 'Sports', comic: 'Comic', music: 'Music',
+};
+const CAT_ICON: Record<IPCategory, string> = {
+  book: 'book-open-variant', video_game: 'gamepad-variant', toy: 'teddy-bear', sports: 'basketball', comic: 'book-multiple', music: 'music-circle',
+};
 
 export default function OffersScreen() {
   const router = useRouter();
-  const { state, acceptOffer, counterOffer, rejectOffer, acceptFranchiseOffer, counterFranchiseOffer, rejectFranchiseOffer, quoteFranchiseValue, acceptBulkCatalogOffer, counterBulkCatalogOffer, rejectBulkCatalogOffer, quoteBulkCatalogValue } = useGame();
+  const { state, acceptOffer, counterOffer, rejectOffer, acceptFranchiseOffer, counterFranchiseOffer, rejectFranchiseOffer, quoteFranchiseValue, acceptBulkCatalogOffer, counterBulkCatalogOffer, rejectBulkCatalogOffer, quoteBulkCatalogValue, quoteFutureReleasesValueB, quoteFranchiseBulkValueB, acceptIPOffer, counterIPOffer, rejectIPOffer, acceptOutboundBid, rejectOutboundBid, counterOutboundBid } = useGame();
   const [active, setActive] = useState<LicenseOffer | null>(null);
   const [counterVal, setCounterVal] = useState('');
   const [activeFranchiseId, setActiveFranchiseId] = useState<string | null>(null);
   const [activeBulkId, setActiveBulkId] = useState<string | null>(null);
+  // IP inbound counter modal
+  const [ipCounterId, setIpCounterId] = useState<string | null>(null);
+  const [cFee, setCFee] = useState(''); const [cBO, setCBO] = useState(''); const [cMerch, setCMerch] = useState('');
+  const [cYears, setCYears] = useState(''); const [cPacks, setCPacks] = useState('');
+  const [cExcl, setCExcl] = useState(false); const [cSub, setCSub] = useState(false);
+  // Outbound bid counter modal
+  const [bidCounterId, setBidCounterId] = useState<string | null>(null);
+  const [bcFee, setBcFee] = useState(''); const [bcRoy, setBcRoy] = useState(''); const [bcYears, setBcYears] = useState('');
 
   if (!state) return null;
   const offers = state.pendingOffers || [];
   const franchiseOffers = (state.franchiseOffers || []).filter(o => o.status === 'pending' && (o.fromStudioId === state.player.id || o.toStudioId === state.player.id));
   const bulkOffers = (state.bulkCatalogOffers || []).filter(o => o.status === 'pending' && (o.fromStudioId === state.player.id || o.toStudioId === state.player.id));
+  const ipInbound = (state.externalIPOffers || []).filter(o => o.status === 'pending');
+  const myListings = (state.outboundIPListings || []).filter(l => l.studioId === state.player.id);
+  const ipOutboundBids = (state.outboundIPBids || []).filter(b => b.status === 'pending' && myListings.some(l => l.id === b.listingId));
+  const totalCount = offers.length + franchiseOffers.length + bulkOffers.length + ipInbound.length + ipOutboundBids.length;
 
   const liveFranchise = activeFranchiseId ? franchiseOffers.find(o => o.id === activeFranchiseId) : null;
   const liveBulk = activeBulkId ? bulkOffers.find(o => o.id === activeBulkId) : null;
@@ -73,12 +92,12 @@ export default function OffersScreen() {
 
   return (
     <SafeAreaView style={s.container} edges={['top', 'bottom']}>
-      <TopBar title="Licensing Offers" onBack={() => router.back()} onHome={() => router.replace('/dashboard')} />
-      {offers.length === 0 && franchiseOffers.length === 0 && bulkOffers.length === 0 ? (
+      <TopBar title={`Deals & Offers · ${totalCount}`} onBack={() => router.back()} onHome={() => router.replace('/dashboard')} />
+      {totalCount === 0 ? (
         <View style={s.empty}>
           <MaterialCommunityIcons name="handshake-outline" size={64} color={T.textDim} />
-          <Text style={s.emptyTxt}>No pending offers.</Text>
-          <Text style={s.emptySub}>AI studios approach you about licensing, franchise trades, and bulk catalog packs over time.</Text>
+          <Text style={s.emptyTxt}>No pending deals.</Text>
+          <Text style={s.emptySub}>AI studios approach you about licensing, franchise trades, bulk catalog packs, and external IPs over time.</Text>
         </View>
       ) : (
         <ScrollView contentContainerStyle={{ padding: 12 }}>
@@ -101,19 +120,110 @@ export default function OffersScreen() {
             );
           })}
 
-          {bulkOffers.length > 0 && <SectionHeader title="Bulk Catalog Offers" />}
+          {bulkOffers.length > 0 && <SectionHeader title="Bulk Catalog & License Offers" />}
           {bulkOffers.map(o => {
             const otherId = o.fromStudioId === state.player.id ? o.toStudioId : o.fromStudioId;
             const other = otherId === state.player.id ? state.player : state.rivals.find(r => r.id === otherId);
+            const kind = o.dealKind || 'catalog';
+            const label = kind === 'future_releases'
+              ? `${o.futureMovieCount} future ${other?.name || 'rival'} films`
+              : kind === 'franchise_bulk'
+                ? `${state.franchises.find(f => f.id === o.franchiseId)?.name || 'Franchise'} — full bulk license`
+                : `${o.movieIds.length}-title catalog pack`;
+            const iconName = kind === 'future_releases' ? 'movie-roll' : kind === 'franchise_bulk' ? 'star-circle' : 'package-variant';
             return (
               <TouchableOpacity key={o.id} style={[s.card, { borderColor: T.magenta }]} onPress={() => setActiveBulkId(o.id)} testID={`bco-${o.id}`}>
-                <MaterialCommunityIcons name="package-variant" size={32} color={T.magenta} />
+                <MaterialCommunityIcons name={iconName as any} size={32} color={T.magenta} />
                 <View style={{ flex: 1, paddingHorizontal: 10 }}>
-                  <Text style={s.title}>{o.movieIds.length}-title catalog pack</Text>
+                  <Text style={s.title} numberOfLines={1}>{label}</Text>
                   <Text style={s.sub}>{other?.name} · {o.years}yr · ${o.priceB.toFixed(2)}B</Text>
                 </View>
                 <MaterialCommunityIcons name="chevron-right" size={28} color={T.textDim} />
               </TouchableOpacity>
+            );
+          })}
+
+          {ipInbound.length > 0 && <SectionHeader title="External IP Offers (Inbound)" />}
+          {ipInbound.map(o => {
+            const ip = state.externalIPs?.find(i => i.id === o.ipId);
+            const lic = state.externalLicensors?.find(l => l.id === o.fromStudioId);
+            if (!ip || !lic) return null;
+            return (
+              <View key={o.id} style={[s.card, { borderColor: T.cyan, flexDirection: 'column', alignItems: 'stretch' }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <MaterialCommunityIcons name={CAT_ICON[ip.category] as any} size={28} color={T.cyan} />
+                  <View style={{ flex: 1, paddingHorizontal: 10 }}>
+                    <Text style={s.title} numberOfLines={1}>{ip.name}</Text>
+                    <Text style={s.sub}>{lic.name} · {CAT_LABEL[ip.category]} · Pop {ip.popularity}/100</Text>
+                  </View>
+                </View>
+                <View style={s.ipTerms}>
+                  <Text style={s.ipTerm}>Fee: <Text style={s.ipTermVal}>${o.feeM.toFixed(1)}M</Text></Text>
+                  <Text style={s.ipTerm}>BO%: <Text style={s.ipTermVal}>{o.boPercent}%</Text></Text>
+                  <Text style={s.ipTerm}>Merch%: <Text style={s.ipTermVal}>{o.merchPercent}%</Text></Text>
+                  <Text style={s.ipTerm}>Term: <Text style={s.ipTermVal}>{o.years}y</Text></Text>
+                  <Text style={s.ipTerm}>Packs: <Text style={s.ipTermVal}>{o.packs}</Text></Text>
+                  {o.exclusivity ? <Text style={[s.ipTerm, { color: T.yellow }]}>EXCLUSIVE</Text> : null}
+                </View>
+                <View style={s.ipBtnRow}>
+                  <TouchableOpacity style={[s.ipBtn, { backgroundColor: T.green }]} onPress={() => {
+                    const r = acceptIPOffer(o.id);
+                    if (r.error) uiAlert('Cannot Accept', r.error);
+                  }} testID={`accept-ip-${o.id}`}>
+                    <Text style={s.ipBtnTxt}>ACCEPT</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[s.ipBtn, { backgroundColor: T.yellow }]} onPress={() => {
+                    setIpCounterId(o.id); setCFee(String(o.feeM)); setCBO(String(o.boPercent)); setCMerch(String(o.merchPercent)); setCYears(String(o.years)); setCPacks(String(o.packs)); setCExcl(o.exclusivity); setCSub(o.sublicensable);
+                  }} testID={`counter-ip-${o.id}`}>
+                    <Text style={s.ipBtnTxt}>COUNTER</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[s.ipBtn, { backgroundColor: T.red }]} onPress={() => rejectIPOffer(o.id)} testID={`reject-ip-${o.id}`}>
+                    <Text style={s.ipBtnTxt}>REJECT</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            );
+          })}
+
+          {ipOutboundBids.length > 0 && <SectionHeader title="Spin-off Bids (Outbound)" />}
+          {ipOutboundBids.map(b => {
+            const list = myListings.find(l => l.id === b.listingId);
+            const fr = list?.sourceFranchiseId ? state.franchises.find(f => f.id === list.sourceFranchiseId) : null;
+            const lic = state.externalLicensors?.find(l => l.id === b.licensorId);
+            return (
+              <View key={b.id} style={[s.card, { borderColor: T.green, flexDirection: 'column', alignItems: 'stretch' }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <MaterialCommunityIcons name="cash-fast" size={28} color={T.green} />
+                  <View style={{ flex: 1, paddingHorizontal: 10 }}>
+                    <Text style={s.title} numberOfLines={1}>{fr?.name || 'Listing'} → {list ? CAT_LABEL[list.category] : '—'}</Text>
+                    <Text style={s.sub}>{lic?.name}</Text>
+                  </View>
+                </View>
+                <View style={s.ipTerms}>
+                  <Text style={s.ipTerm}>Upfront: <Text style={s.ipTermVal}>${b.feeM.toFixed(1)}M</Text></Text>
+                  <Text style={s.ipTerm}>Royalty: <Text style={s.ipTermVal}>{b.royaltyPercent}%</Text></Text>
+                  <Text style={s.ipTerm}>Term: <Text style={s.ipTermVal}>{b.years}y</Text></Text>
+                </View>
+                <View style={s.ipBtnRow}>
+                  <TouchableOpacity style={[s.ipBtn, { backgroundColor: T.green }]} onPress={() => {
+                    const r = acceptOutboundBid(b.id);
+                    if (r.error) uiAlert('Cannot Accept', r.error);
+                  }} testID={`accept-bid-o-${b.id}`}>
+                    <Text style={s.ipBtnTxt}>ACCEPT</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[s.ipBtn, { backgroundColor: T.yellow }]} onPress={() => {
+                    setBidCounterId(b.id);
+                    setBcFee(String(+(b.feeM * 1.15).toFixed(1)));
+                    setBcRoy(String(+(b.royaltyPercent + 1).toFixed(1)));
+                    setBcYears(String(b.years));
+                  }} testID={`counter-bid-o-${b.id}`}>
+                    <Text style={s.ipBtnTxt}>COUNTER</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[s.ipBtn, { backgroundColor: T.red }]} onPress={() => rejectOutboundBid(b.id)} testID={`reject-bid-o-${b.id}`}>
+                    <Text style={s.ipBtnTxt}>REJECT</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
             );
           })}
 
@@ -175,10 +285,22 @@ export default function OffersScreen() {
       {/* Bulk catalog negotiation */}
       <NegotiationModal
         visible={!!liveBulk}
-        subjectTitle={liveBulk ? `${liveBulk.movieIds.length}-title catalog pack` : ''}
+        subjectTitle={liveBulk ? (
+          (liveBulk.dealKind || 'catalog') === 'future_releases'
+            ? `${liveBulk.futureMovieCount} future ${state.rivals.find(r => r.id === (liveBulk.fromStudioId === state.player.id ? liveBulk.toStudioId : liveBulk.fromStudioId))?.name || 'rival'} films`
+            : (liveBulk.dealKind === 'franchise_bulk')
+              ? `${state.franchises.find(f => f.id === liveBulk.franchiseId)?.name || 'Franchise'} — full bulk license`
+              : `${liveBulk.movieIds.length}-title catalog pack`
+        ) : ''}
         subtitle={liveBulk ? `${liveBulk.years}-year license` : ''}
         currentPriceB={liveBulk?.priceB || 0}
-        fairValueB={liveBulk ? quoteBulkCatalogValue(liveBulk.movieIds, liveBulk.years) : 0}
+        fairValueB={liveBulk ? (
+          (liveBulk.dealKind || 'catalog') === 'future_releases'
+            ? quoteFutureReleasesValueB(liveBulk.fromStudioId === state.player.id ? liveBulk.toStudioId : liveBulk.fromStudioId, liveBulk.futureMovieCount || 1, liveBulk.years)
+            : (liveBulk.dealKind === 'franchise_bulk' && liveBulk.franchiseId)
+              ? quoteFranchiseBulkValueB(liveBulk.franchiseId, liveBulk.years)
+              : quoteBulkCatalogValue(liveBulk.movieIds, liveBulk.years)
+        ) : 0}
         playerSide={liveBulk ? sideOf(liveBulk) : 'buyer'}
         roundsLeft={liveBulk ? roundsLeft(liveBulk) : 0}
         message={liveBulk?.message}
@@ -187,7 +309,7 @@ export default function OffersScreen() {
           if (!liveBulk) return;
           const r = acceptBulkCatalogOffer(liveBulk.id);
           if (r.error) { uiAlert('Failed', r.error); return; }
-          uiAlert('Pack Closed ✓', `Settled at $${liveBulk.priceB.toFixed(2)}B for ${liveBulk.movieIds.length} titles.`);
+          uiAlert('Deal Closed ✓', `Settled at $${liveBulk.priceB.toFixed(2)}B / ${liveBulk.years}yr.`);
           setActiveBulkId(null);
         }}
         onCounter={(v: number) => {
@@ -202,6 +324,85 @@ export default function OffersScreen() {
         }}
         onClose={() => setActiveBulkId(null)}
       />
+
+      {/* IP Inbound counter modal */}
+      <Modal visible={!!ipCounterId} transparent animationType="slide" onRequestClose={() => setIpCounterId(null)}>
+        <View style={s.ipModalBg}>
+          <View style={s.ipModalCard}>
+            <Text style={s.ipModalTitle}>Counter IP Offer</Text>
+            <View style={s.ipNumRow}>
+              <IPNumInput label="Fee ($M)" value={cFee} onChange={setCFee} testID="ip-c-fee" />
+              <IPNumInput label="BO %" value={cBO} onChange={setCBO} testID="ip-c-bo" />
+            </View>
+            <View style={s.ipNumRow}>
+              <IPNumInput label="Merch %" value={cMerch} onChange={setCMerch} testID="ip-c-merch" />
+              <IPNumInput label="Years" value={cYears} onChange={setCYears} testID="ip-c-years" />
+            </View>
+            <View style={s.ipNumRow}>
+              <IPNumInput label="Packs" value={cPacks} onChange={setCPacks} testID="ip-c-packs" />
+              <View style={{ flex: 1 }} />
+            </View>
+            <View style={s.ipBtnRow}>
+              <TouchableOpacity style={[s.ipToggle, cExcl && s.ipToggleOn]} onPress={() => setCExcl(v => !v)} testID="ip-c-excl">
+                <Text style={[s.ipToggleTxt, cExcl && { color: T.cardDark }]}>Exclusive {cExcl ? '✓' : ''}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[s.ipToggle, cSub && s.ipToggleOn]} onPress={() => setCSub(v => !v)} testID="ip-c-sub">
+                <Text style={[s.ipToggleTxt, cSub && { color: T.cardDark }]}>Sublicensable {cSub ? '✓' : ''}</Text>
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity style={[s.ipBtn, { backgroundColor: T.green, marginTop: 12 }]} onPress={() => {
+              if (!ipCounterId) return;
+              const r = counterIPOffer(ipCounterId, {
+                feeM: parseFloat(cFee) || 0,
+                boPercent: parseFloat(cBO) || 0,
+                merchPercent: parseFloat(cMerch) || 0,
+                years: parseInt(cYears, 10) || 0,
+                packs: parseInt(cPacks, 10) || 0,
+                exclusivity: cExcl,
+                sublicensable: cSub,
+              });
+              if (r.error) uiAlert('Counter Failed', r.error); else setIpCounterId(null);
+            }} testID="ip-c-submit">
+              <Text style={s.ipBtnTxt}>SUBMIT COUNTER</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[s.ipBtn, { backgroundColor: T.card }]} onPress={() => setIpCounterId(null)}>
+              <Text style={s.ipBtnTxt}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Outbound bid counter modal */}
+      <Modal visible={!!bidCounterId} transparent animationType="slide" onRequestClose={() => setBidCounterId(null)}>
+        <View style={s.ipModalBg}>
+          <View style={s.ipModalCard}>
+            <Text style={s.ipModalTitle}>Counter Bid</Text>
+            <Text style={s.ipModalSub}>Push the agency for richer terms. Going too high may push them to walk away.</Text>
+            <View style={s.ipNumRow}>
+              <IPNumInput label="Upfront ($M)" value={bcFee} onChange={setBcFee} testID="bc-fee-o" />
+              <IPNumInput label="Royalty %" value={bcRoy} onChange={setBcRoy} testID="bc-roy-o" />
+            </View>
+            <View style={s.ipNumRow}>
+              <IPNumInput label="Years" value={bcYears} onChange={setBcYears} testID="bc-years-o" />
+              <View style={{ flex: 1 }} />
+            </View>
+            <TouchableOpacity style={[s.ipBtn, { backgroundColor: T.green, marginTop: 12 }]} onPress={() => {
+              if (!bidCounterId) return;
+              const r = counterOutboundBid(bidCounterId, {
+                feeM: parseFloat(bcFee) || 0,
+                royaltyPercent: parseFloat(bcRoy) || 0,
+                years: parseInt(bcYears, 10) || 0,
+              });
+              if (r.error) uiAlert('Counter Failed', r.error); else setBidCounterId(null);
+            }} testID="bc-submit-o">
+              <Text style={s.ipBtnTxt}>SUBMIT COUNTER</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[s.ipBtn, { backgroundColor: T.card }]} onPress={() => setBidCounterId(null)}>
+              <Text style={s.ipBtnTxt}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       <Modal visible={!!active} transparent animationType="slide" onRequestClose={() => setActive(null)}>
         {active ? (() => {
@@ -264,6 +465,21 @@ export default function OffersScreen() {
   );
 }
 
+function IPNumInput({ label, value, onChange, testID }: { label: string; value: string; onChange: (v: string) => void; testID?: string }) {
+  return (
+    <View style={{ flex: 1 }}>
+      <Text style={{ color: T.textDim, fontSize: 11, fontWeight: '700', marginBottom: 4 }}>{label}</Text>
+      <TextInput
+        value={value}
+        onChangeText={onChange}
+        keyboardType="numeric"
+        style={{ backgroundColor: T.cardDark, color: T.text, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 8, borderWidth: 2, borderColor: T.border, fontSize: 14, fontWeight: '800' }}
+        testID={testID}
+      />
+    </View>
+  );
+}
+
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: T.bg },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 28 },
@@ -291,4 +507,19 @@ const s = StyleSheet.create({
   btnRejectT: { color: '#E84545', fontWeight: '900' },
   btnCancel: { paddingVertical: 10, alignItems: 'center', marginTop: 4 },
   btnCancelT: { color: T.textDim, fontWeight: '700' },
+  // IP/outbound section additions
+  ipTerms: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8, paddingHorizontal: 4 },
+  ipTerm: { color: T.textDim, fontSize: 12, fontWeight: '700' },
+  ipTermVal: { color: T.text, fontWeight: '900' },
+  ipBtnRow: { flexDirection: 'row', gap: 6, marginTop: 8 },
+  ipBtn: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center', borderWidth: 2, borderColor: T.border },
+  ipBtnTxt: { color: T.cardDark, fontWeight: '900', fontSize: 12 },
+  ipModalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
+  ipModalCard: { backgroundColor: '#4d5058', padding: 18, borderTopLeftRadius: 18, borderTopRightRadius: 18, borderWidth: 3, borderColor: T.border },
+  ipModalTitle: { color: T.text, fontSize: 20, fontWeight: '900', marginBottom: 4 },
+  ipModalSub: { color: T.textDim, fontSize: 12, marginBottom: 12 },
+  ipNumRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
+  ipToggle: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center', borderWidth: 2, borderColor: T.border, backgroundColor: T.cardDark },
+  ipToggleOn: { backgroundColor: T.yellow, borderColor: T.yellow },
+  ipToggleTxt: { color: T.text, fontWeight: '800', fontSize: 12 },
 });

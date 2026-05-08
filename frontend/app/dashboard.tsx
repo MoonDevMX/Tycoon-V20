@@ -239,18 +239,23 @@ export default function Dashboard() {
             const licensingCount = state.pendingOffers?.length ?? 0;
             const franchiseCount = (state.franchiseOffers || []).filter(o => o.status === 'pending' && (o.fromStudioId === playerId || o.toStudioId === playerId)).length;
             const bulkCount = (state.bulkCatalogOffers || []).filter(o => o.status === 'pending' && (o.fromStudioId === playerId || o.toStudioId === playerId)).length;
-            const total = licensingCount + franchiseCount + bulkCount;
+            const ipInbCount = (state.externalIPOffers || []).filter(o => o.status === 'pending').length;
+            const myListings = (state.outboundIPListings || []).filter(l => l.studioId === playerId);
+            const ipBidsCount = (state.outboundIPBids || []).filter(b => b.status === 'pending' && myListings.some(l => l.id === b.listingId)).length;
+            const total = licensingCount + franchiseCount + bulkCount + ipInbCount + ipBidsCount;
             const summary = total === 0
-              ? 'No pending offers'
+              ? 'No pending deals'
               : [
                   licensingCount > 0 ? `${licensingCount} streamer${licensingCount > 1 ? 's' : ''}` : '',
-                  franchiseCount > 0 ? `${franchiseCount} franchise trade${franchiseCount > 1 ? 's' : ''}` : '',
-                  bulkCount > 0 ? `${bulkCount} catalog pack${bulkCount > 1 ? 's' : ''}` : '',
+                  franchiseCount > 0 ? `${franchiseCount} franchise` : '',
+                  bulkCount > 0 ? `${bulkCount} bulk pack${bulkCount > 1 ? 's' : ''}` : '',
+                  ipInbCount > 0 ? `${ipInbCount} IP offer${ipInbCount > 1 ? 's' : ''}` : '',
+                  ipBidsCount > 0 ? `${ipBidsCount} spin-off bid${ipBidsCount > 1 ? 's' : ''}` : '',
                 ].filter(Boolean).join(' · ');
             return (
               <View>
                 <GreyButton
-                  label="Pending Trades & Offers"
+                  label="Deals & Offers"
                   sublabel={summary}
                   onPress={() => router.push('/offers')}
                   icon="handshake"

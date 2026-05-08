@@ -105,3 +105,33 @@ Filter relaxed: rival movies (no `targetReleaseWeek`) are now included if `weeks
 ### Next Action Items
 - Manually launch in Expo (`yarn start`) and exercise each negotiation surface to confirm AI counter pricing feels coherent with fair-value heuristics.
 - Optional: convert cinema deals to the unified `NegotiationModal` (current implementation has its own counter flow; feature-equivalent but visually divergent).
+
+---
+
+## V21 Follow-up — Unified Deals & Offers Inbox (Feb 2026)
+
+User-requested enhancement: consolidate all pending negotiations into a single inbox screen.
+
+### What's in
+`app/offers.tsx` rebranded to **Deals & Offers** — now renders five sections in one scroll:
+
+1. **Streaming License Offers** — existing `pendingOffers` (per-movie license)
+2. **Franchise Trade Offers** — existing `franchiseOffers`
+3. **Bulk Catalog & License Offers** — `bulkCatalogOffers` of all 3 dealKinds (catalog / future_releases / franchise_bulk) with kind-specific labels + icons
+4. **External IP Offers (Inbound)** — `externalIPOffers` with inline Accept/Counter/Reject + multi-term counter modal (fee, BO%, merch%, years, packs, exclusivity, sublicensable)
+5. **Spin-off Bids (Outbound)** — `outboundIPBids` on the player's listings, with inline Accept/Counter/Reject + counter modal (fee, royalty%, years)
+
+### Other changes
+- `app/dashboard.tsx`: button renamed "Deals & Offers"; sublabel summary + badge now also include IP inbound offers + outbound bids.
+- The bulk-offer card label and the bulk negotiation modal title/fair-value branch by `dealKind` so the user sees correct context per deal type.
+
+### Files touched
+- `frontend/app/offers.tsx` — added IP inbound + outbound sections, two new counter modals, IPNumInput helper, theme styles
+- `frontend/app/dashboard.tsx` — total count + summary now includes IP inbound + bids; entry renamed
+
+### Validation
+- `tsc --noEmit` → 0 errors
+
+### Next Action Items
+- Optional: surface the same unified inbox via a tab on the bottom nav for one-tap access.
+- Optional: add color-coded urgency (e.g. red border if a bid is about to expire — would require expiry timestamps on offers, which currently don't exist).
