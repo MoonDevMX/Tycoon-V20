@@ -8,6 +8,7 @@ import { useMovieDraft } from '../src/game/draft';
 import { T } from '../src/ui/theme';
 import { TopBar, Avatar, IconTile } from '../src/ui/components';
 import { GENRES, PLOT_ARCS, RATINGS, COLOR_HEX, dealTerms, holidayFor, computeChemistryBonus, contractTerms, monthOf, WEEKS_PER_YEAR } from '../src/game/data';
+import { calculateAcceptance } from '../src/game/sim';
 import { Brand, Genre, MovieType, PlotArc, Rating, ColorTrait, ReleaseStrategy } from '../src/game/types';
 
 export default function CreateMovie() {
@@ -353,6 +354,65 @@ export default function CreateMovie() {
                       }}
                       style={[s.smallInput, { minHeight: 50 }]}
                       multiline maxLength={200} testID={`cast-${i}-desc`} />
+                    {/* Inline negotiation: deal split + contract length */}
+                    <Text style={[s.crewLbl, { color: T.yellow, marginTop: 8 }]}>DEAL SPLIT</Text>
+                    <View style={s.btnRow}>
+                      {(['actor_favored', 'middle', 'studio_favored'] as const).map(dt => {
+                        const dlt = dealTerms(t.salary, dt);
+                        const active = c.dealType === dt;
+                        const label = dt === 'actor_favored' ? `Star ${dlt.salary.toFixed(1)}M+${dlt.boPercent}%BO`
+                          : dt === 'middle' ? `Mid ${dlt.salary.toFixed(1)}M+${dlt.boPercent}%BO`
+                          : `Studio ${dlt.salary.toFixed(1)}M+${dlt.boPercent}%BO`;
+                        return (
+                          <TouchableOpacity key={dt}
+                            style={[s.miniBtn, active && { backgroundColor: T.yellow }]}
+                            onPress={() => {
+                              const next = draft.cast.map((cc, idx) => idx === i ? { ...cc, dealType: dt } : cc);
+                              setDraft({ cast: next });
+                            }}
+                            testID={`cast-${i}-deal-${dt}`}>
+                            <Text style={[s.miniBtnT, active && { color: T.cardDark, fontSize: 10 }]} numberOfLines={1}>{label}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                    <Text style={[s.crewLbl, { color: T.yellow, marginTop: 6 }]}>CONTRACT</Text>
+                    <View style={s.btnRow}>
+                      {(['single', 'pack3', 'hold5y'] as const).map(ck => {
+                        const ct = contractTerms(ck);
+                        const active = c.contractKind === ck;
+                        const label = ck === 'single' ? '1 film'
+                          : ck === 'pack3' ? `3-pic ×${ct.multiplier.toFixed(2)}`
+                          : `5y hold ×${ct.multiplier.toFixed(2)}`;
+                        return (
+                          <TouchableOpacity key={ck}
+                            style={[s.miniBtn, active && { backgroundColor: T.cyan }]}
+                            onPress={() => {
+                              const next = draft.cast.map((cc, idx) => idx === i ? { ...cc, contractKind: ck } : cc);
+                              setDraft({ cast: next });
+                            }}
+                            testID={`cast-${i}-contract-${ck}`}>
+                            <Text style={[s.miniBtnT, active && { color: T.cardDark, fontSize: 10 }]}>{label}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                    {/* Acceptance chip: shows whether talent will sign at current deal */}
+                    {(() => {
+                      const dlt = dealTerms(t.salary, c.dealType);
+                      const ct = contractTerms(c.contractKind);
+                      const upfront = dlt.salary * ct.multiplier;
+                      const acc = calculateAcceptance(t, c.contractKind === 'single' ? 1 : c.contractKind === 'pack3' ? 3 : 5, upfront, dlt.boPercent);
+                      const willSign = acc.verdict === 'will_accept' || acc.verdict === 'likely_accept';
+                      const willCounter = acc.verdict === 'considering';
+                      const color = willSign ? T.green : willCounter ? T.yellow : T.orange;
+                      const label = willSign ? '✓ Will sign' : willCounter ? `🤝 Will counter — ${acc.reason}` : `✗ Will reject — ${acc.reason}`;
+                      return (
+                        <View style={[s.acceptChip, { borderColor: color, backgroundColor: color + '22' }]}>
+                          <Text style={[s.acceptT, { color }]} testID={`cast-${i}-accept-status`}>{label}</Text>
+                        </View>
+                      );
+                    })()}
                   </>
                 ) : null}
               </View>
@@ -479,6 +539,8 @@ function CalendarInline({ state, draft, setDraft, filmingWeeks, effW, effY }: an
 const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: T.bg },
   smallInput: { backgroundColor: T.card, color: T.text, borderRadius: 6, paddingHorizontal: 10, paddingVertical: 6, fontSize: 13, borderWidth: 1, borderColor: T.border, marginTop: 2 },
+  acceptChip: { borderWidth: 2, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 10, marginTop: 6 },
+  acceptT: { fontWeight: '800', fontSize: 11 },
   roleTypeRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 },
   brandRow: { flexDirection: 'row', gap: 6, marginTop: 6 },
   brandChip: { backgroundColor: T.cardDark, borderWidth: 2, borderColor: T.border, paddingVertical: 6, paddingHorizontal: 10, borderRadius: 14, flex: 1, alignItems: 'center' },

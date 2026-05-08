@@ -16,7 +16,9 @@ export default function CinemasScreen() {
   const [years, setYears] = useState(7);
   const [openShare, setOpenShare] = useState('');
   const [lateShare, setLateShare] = useState('');
-  const [statusMsg, setStatusMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [statusMsg, setStatusMsg] = useState<{ kind: 'ok' | 'err' | 'counter'; text: string } | null>(null);
+  const [chainCounter, setChainCounter] = useState<{ openShare: number; lateShare: number; years: number; reason: string } | null>(null);
+  const [round, setRound] = useState(1);
 
   if (!state) return null;
   const playerDeals = (state.cinemaDeals || []).filter(d => d.studioId === state.player.id);
@@ -30,6 +32,8 @@ export default function CinemasScreen() {
     setOpenShare(((range.minOpen + range.maxOpen) / 2).toFixed(2));
     setLateShare(((range.minLate + range.maxLate) / 2).toFixed(2));
     setStatusMsg(null);
+    setChainCounter(null);
+    setRound(1);
   };
 
   const submitDeal = () => {
@@ -43,12 +47,35 @@ export default function CinemasScreen() {
       uiAlert('Negotiation Failed', r.error);
       return;
     }
+    if (r.counter) {
+      // Chain pushed back — show counter and let player accept/re-counter/walk.
+      setChainCounter(r.counter);
+      setRound(round + 1);
+      setStatusMsg({ kind: 'counter', text: `🤝 Round ${round}: ${CINEMA_CHAINS.find(c => c.id === chainId)?.name} counters — opening ${(r.counter.openShare * 100).toFixed(0)}% / late ${(r.counter.lateShare * 100).toFixed(0)}% (${r.counter.reason}).` });
+      return;
+    }
     const chainName = CINEMA_CHAINS.find(c => c.id === chainId)?.name || 'this chain';
     const ok = `✅ Deal signed with ${chainName} for ${years} years.`;
     setStatusMsg({ kind: 'ok', text: ok });
     uiAlert('Cinema Deal Signed ✓', `Welcome to the ${chainName} circuit. ${years}-year term locked in.`);
-    // Auto-close shortly so the success state lingers visibly
-    setTimeout(() => { setChainId(null); setStatusMsg(null); }, 900);
+    setTimeout(() => { setChainId(null); setStatusMsg(null); setChainCounter(null); setRound(1); }, 900);
+  };
+
+  const acceptCounter = () => {
+    if (!chainId || !chainCounter) return;
+    const r = signCinemaDeal(chainId, chainCounter.years, chainCounter.openShare, chainCounter.lateShare);
+    if (r.error) { setStatusMsg({ kind: 'err', text: `❌ ${r.error}` }); return; }
+    if (r.counter) {
+      // Chain still wants more — should be rare since we're accepting their terms verbatim, but handle gracefully.
+      setChainCounter(r.counter);
+      setStatusMsg({ kind: 'counter', text: `Round ${round + 1}: ${CINEMA_CHAINS.find(c => c.id === chainId)?.name} counter ${(r.counter.openShare * 100).toFixed(0)}% / ${(r.counter.lateShare * 100).toFixed(0)}%` });
+      setRound(round + 1);
+      return;
+    }
+    const chainName = CINEMA_CHAINS.find(c => c.id === chainId)?.name || 'this chain';
+    setStatusMsg({ kind: 'ok', text: `✅ Counter accepted — ${chainName} signed for ${chainCounter.years} years.` });
+    uiAlert('Cinema Deal Signed ✓', `${chainName} circuit. ${chainCounter.years}-year term.`);
+    setTimeout(() => { setChainId(null); setStatusMsg(null); setChainCounter(null); setRound(1); }, 900);
   };
 
   return (
@@ -137,14 +164,34 @@ export default function CinemasScreen() {
                 <Text style={s.modalHint}>Higher % = more revenue but harder to sign. Stay near midpoint to be safe.</Text>
 
                 {statusMsg ? (
-                  <View style={[s.statusBox, statusMsg.kind === 'ok' ? { borderColor: T.green, backgroundColor: T.green + '22' } : { borderColor: '#E84545', backgroundColor: '#E8454522' }]} testID="cinema-status">
-                    <Text style={[s.statusTxt, statusMsg.kind === 'ok' ? { color: T.green } : { color: '#E84545' }]}>{statusMsg.text}</Text>
+                  <View style={[s.statusBox, statusMsg.kind === 'ok' ? { borderColor: T.green, backgroundColor: T.green + '22' } : statusMsg.kind === 'counter' ? { borderColor: T.yellow, backgroundColor: T.yellow + '22' } : { borderColor: '#E84545', backgroundColor: '#E8454522' }]} testID="cinema-status">
+                    <Text style={[s.statusTxt, statusMsg.kind === 'ok' ? { color: T.green } : statusMsg.kind === 'counter' ? { color: T.yellow } : { color: '#E84545' }]}>{statusMsg.text}</Text>
+                  </View>
+                ) : null}
+
+                {chainCounter ? (
+                  <View style={s.counterBox}>
+                    <Text style={s.counterTitle}>CHAIN COUNTER OFFER</Text>
+                    <Text style={s.counterTxt}>Opening: {(chainCounter.openShare * 100).toFixed(0)}%  ·  Late: {(chainCounter.lateShare * 100).toFixed(0)}%  ·  {chainCounter.years}y</Text>
+                    <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                      <TouchableOpacity style={[s.counterBtn, { backgroundColor: T.green }]} onPress={acceptCounter} testID="accept-counter-btn">
+                        <Text style={[s.counterBtnTxt, { color: T.cardDark }]}>Accept</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={[s.counterBtn, { backgroundColor: T.cyan }]}
+                        onPress={() => { setOpenShare(chainCounter.openShare.toFixed(2)); setLateShare(chainCounter.lateShare.toFixed(2)); setChainCounter(null); }}
+                        testID="counter-again-btn">
+                        <Text style={[s.counterBtnTxt, { color: T.cardDark }]}>Counter</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={[s.counterBtn, { backgroundColor: T.card }]} onPress={() => setChainId(null)} testID="walk-away-btn">
+                        <Text style={[s.counterBtnTxt, { color: T.text }]}>Walk Away</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                 ) : null}
 
                 <TouchableOpacity style={s.signBtn} onPress={submitDeal} testID="sign-deal-btn">
                   <MaterialCommunityIcons name="handshake" size={20} color={T.cardDark} />
-                  <Text style={s.signTxt}>NEGOTIATE & SIGN</Text>
+                  <Text style={s.signTxt}>{round === 1 ? 'NEGOTIATE & SIGN' : `RE-SUBMIT (Round ${round})`}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={s.cancelBtn} onPress={() => setChainId(null)}>
                   <Text style={s.cancelTxt}>Cancel</Text>
@@ -179,6 +226,11 @@ const s = StyleSheet.create({
   modalHint: { color: T.textDim, fontSize: 11, marginTop: 6, fontStyle: 'italic' },
   statusBox: { padding: 10, borderRadius: 8, marginTop: 10, borderWidth: 2 },
   statusTxt: { fontWeight: '900', fontSize: 13, textAlign: 'center' },
+  counterBox: { backgroundColor: T.cardDark, padding: 12, borderRadius: 10, marginTop: 10, borderWidth: 2, borderColor: T.yellow },
+  counterTitle: { color: T.yellow, fontWeight: '900', fontSize: 12, letterSpacing: 1 },
+  counterTxt: { color: T.text, fontWeight: '700', fontSize: 13, marginTop: 4 },
+  counterBtn: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center', borderWidth: 2, borderColor: T.border },
+  counterBtnTxt: { fontWeight: '900', fontSize: 12 },
   signBtn: { flexDirection: 'row', backgroundColor: T.green, paddingVertical: 14, borderRadius: 10, alignItems: 'center', justifyContent: 'center', marginTop: 16, gap: 6, borderWidth: 2, borderColor: T.border },
   signTxt: { color: T.cardDark, fontWeight: '900' },
   cancelBtn: { paddingVertical: 12, alignItems: 'center' },

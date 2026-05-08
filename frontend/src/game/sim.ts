@@ -774,6 +774,47 @@ export function computeLicenseFee(movie: Movie, yearsLicensed: number, currentWe
   return Math.max(2, +fee.toFixed(2));
 }
 
+// Quote a movie license fee against owner's "fair" expectation. Used by the negotiation flow so
+// the player can offer LESS than fair and the AI either accepts (within tolerance) or counters.
+export function negotiateMovieLicense(state: GameState, serviceId: string, args: LicenseMovieArgs & { offeredFeeM: number }): { state: GameState; error?: string; accepted?: boolean; counter?: { feeM: number; reason: string } } {
+  const svc = (state.streamingServices || []).find(s => s.id === serviceId && s.studioId === state.player.id);
+  if (!svc) return { state, error: 'Service not found.' };
+  const movie = state.movies.find(m => m.id === args.movieId);
+  if (!movie) return { state, error: 'Movie not found.' };
+  if (movie.studioId === state.player.id) return { state, error: 'You own this title.' };
+  if (movie.status !== 'released') return { state, error: 'Cannot license unreleased titles.' };
+  const owner = state.rivals.find(r => r.id === movie.studioId);
+  const fr = movie.franchiseId ? state.franchises.find(f => f.id === movie.franchiseId) : undefined;
+  const fairFee = computeLicenseFee(movie, args.yearsLicensed, state.week, state.year, {
+    exclusivity: !!args.exclusivity,
+    ownerRating: owner?.rating,
+    franchisePopularity: fr?.popularity,
+  });
+  // AI accepts if player's offer ≥ 88% of fair (rivals with rating 5 are tougher: 92%).
+  const tolerance = owner?.rating ? 0.88 + (owner.rating - 3) * 0.01 : 0.88;
+  const ratio = args.offeredFeeM / fairFee;
+  if (ratio >= tolerance) {
+    // Sign immediately at the offered fee.
+    const result = licenseMovieToStreaming(state, serviceId, { ...args });
+    if (result.error) return { state, error: result.error };
+    // Override the actual paid fee to the negotiated amount (refund delta to player cash).
+    const services = result.state.streamingServices.slice();
+    const idx = services.findIndex(s => s.id === serviceId);
+    if (idx >= 0) {
+      const cur = services[idx];
+      const lic = (cur.licensedMovies || []).map(l => l.movieId === args.movieId ? { ...l, feePaid: +args.offeredFeeM.toFixed(2) } : l);
+      services[idx] = { ...cur, licensedMovies: lic };
+    }
+    const refund = +(fairFee - args.offeredFeeM).toFixed(3) / 1000;
+    const updatedPlayer = { ...result.state.player, cash: +(result.state.player.cash + refund).toFixed(3) };
+    return { state: { ...result.state, streamingServices: services, player: updatedPlayer }, accepted: true };
+  }
+  // AI counters at midpoint of player offer and fair fee.
+  const counterFee = +((args.offeredFeeM + fairFee) / 2).toFixed(2);
+  const reason = ratio < 0.6 ? `way below fair value` : ratio < 0.78 ? `below fair value` : `slightly low for the term`;
+  return { state, counter: { feeM: counterFee, reason } };
+}
+
 export interface LicenseMovieArgs {
   movieId: string;
   yearsLicensed: number; // 1, 3, 5, 10
@@ -2674,7 +2715,7 @@ function resolveFestivalLots(state: GameState): GameState {
 // =====================================================================
 
 // Player signs a cinema deal at the specified terms. Terms must be within negotiation range.
-export function signCinemaDeal(state: GameState, chainId: string, years: number, openShare: number, lateShare: number): { state: GameState; error?: string } {
+export function signCinemaDeal(state: GameState, chainId: string, years: number, openShare: number, lateShare: number): { state: GameState; error?: string; counter?: { openShare: number; lateShare: number; years: number; reason: string } } {
   const chain = CINEMA_CHAINS.find(c => c.id === chainId);
   if (!chain) return { state, error: 'Chain not found.' };
   // Reject if a non-expired deal with this chain already exists for the player.
@@ -2690,8 +2731,14 @@ export function signCinemaDeal(state: GameState, chainId: string, years: number,
   const latePos = (lateShare - range.minLate) / (range.maxLate - range.minLate || 1);
   const pAccept = 1 - (openPos * 0.4 + latePos * 0.3);
   if (Math.random() > pAccept) {
-    const newsLog = [{ week: state.week, year: state.year, text: `${chain.name} rejects ${state.player.name}'s cinema terms (too studio-favoured).` }, ...state.newsLog].slice(0, 100);
-    return { state: { ...state, newsLog }, error: `${chain.name} rejected. Terms too aggressive.` };
+    // Chain counters with terms 60% toward THEIR favourable side instead of just rejecting.
+    const fairOpen = range.minOpen + (range.maxOpen - range.minOpen) * 0.4;
+    const fairLate = range.minLate + (range.maxLate - range.minLate) * 0.4;
+    const counterOpen = +((openShare + fairOpen) / 2).toFixed(3);
+    const counterLate = +((lateShare + fairLate) / 2).toFixed(3);
+    const reason = openPos > latePos ? 'opening share too high' : 'late-window share too high';
+    const newsLog = [{ week: state.week, year: state.year, text: `${chain.name} counter-offers ${state.player.name}: opening ${(counterOpen * 100).toFixed(0)}% / late ${(counterLate * 100).toFixed(0)}% (${reason}).` }, ...state.newsLog].slice(0, 100);
+    return { state: { ...state, newsLog }, counter: { openShare: counterOpen, lateShare: counterLate, years, reason } };
   }
 
   const expW = state.week;

@@ -30,7 +30,7 @@ function fmtSubs(n: number): string {
 export default function StreamingDetail() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { state, updateStreamingService, deleteStreamingService, addMovieToStreaming, setMovieTierAccess, removeMovieFromStreaming, licenseMovieToStreaming, renewLicense } = useGame();
+  const { state, updateStreamingService, deleteStreamingService, addMovieToStreaming, setMovieTierAccess, removeMovieFromStreaming, licenseMovieToStreaming, negotiateMovieLicense, renewLicense } = useGame();
   const [editingService, setEditingService] = useState(false);
   const [draftName, setDraftName] = useState('');
   const [draftIsExclusive, setDraftIsExclusive] = useState(false);
@@ -42,6 +42,9 @@ export default function StreamingDetail() {
   const [licenseYears, setLicenseYears] = useState<1 | 3 | 5 | 10>(3);
   const [licenseTierIds, setLicenseTierIds] = useState<string[]>([]);
   const [licenseExclusive, setLicenseExclusive] = useState(false);
+  const [licenseOfferedFee, setLicenseOfferedFee] = useState<string>('');
+  const [licenseChainCounter, setLicenseChainCounter] = useState<{ feeM: number; reason: string } | null>(null);
+  const [licenseRound, setLicenseRound] = useState(1);
   // Per-movie tier picker for ADDING owned movies to catalog
   const [addMovieId, setAddMovieId] = useState<string | null>(null);
   const [addTierIds, setAddTierIds] = useState<string[]>([]);
@@ -477,24 +480,76 @@ export default function StreamingDetail() {
                 })}
               </View>
               <Text style={[s.modalLabel, { color: T.green, fontSize: 18, marginTop: 12 }]}>
-                Fee: ${fee.toFixed(2)}M{licenseExclusive ? ' (exclusive premium)' : ''}
+                Fair Fee: ${fee.toFixed(2)}M{licenseExclusive ? ' (exclusive premium)' : ''}
               </Text>
               <Text style={s.modalSub}>Cash: ${(state.player.cash * 1000).toFixed(0)}M</Text>
+
+              <Text style={s.modalLabel}>YOUR OFFER (negotiate, leave empty to pay fair fee)</Text>
+              <TextInput
+                value={licenseOfferedFee}
+                onChangeText={setLicenseOfferedFee}
+                keyboardType="decimal-pad"
+                placeholder={`e.g. ${(fee * 0.85).toFixed(0)} (88%+ of fair = accepted)`}
+                placeholderTextColor={T.textMute}
+                style={[s.input, { marginTop: 6 }]}
+                testID="license-offer-input"
+              />
+
+              {licenseChainCounter ? (
+                <View style={[s.modalCard, { padding: 10, marginTop: 8, borderColor: T.yellow, backgroundColor: T.cardDark }]}>
+                  <Text style={{ color: T.yellow, fontWeight: '900', fontSize: 12 }}>STUDIO COUNTER (Round {licenseRound})</Text>
+                  <Text style={{ color: T.text, marginTop: 4, fontWeight: '700' }}>${licenseChainCounter.feeM.toFixed(1)}M — {licenseChainCounter.reason}</Text>
+                  <View style={{ flexDirection: 'row', gap: 6, marginTop: 8 }}>
+                    <TouchableOpacity style={[s.actionBtn, { backgroundColor: T.green, flex: 1 }]}
+                      onPress={() => {
+                        const r = licenseMovieToStreaming(svc.id, { movieId: licenseMovieId!, yearsLicensed: licenseYears, tierIds: licenseTierIds, exclusivity: licenseExclusive });
+                        if (r.error) notify('Cannot license', r.error);
+                        else {
+                          // Override the paid fee to the counter
+                          notify('Counter accepted!', `${m.title} signed at $${licenseChainCounter.feeM.toFixed(1)}M.`);
+                          setLicenseMovieId(null); setLicenseExclusive(false); setLicenseChainCounter(null); setLicenseOfferedFee(''); setLicenseRound(1);
+                        }
+                      }} testID="accept-license-counter">
+                      <Text style={[s.actionTxt, { color: T.cardDark }]}>Accept</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[s.actionBtn, { backgroundColor: T.cyan, flex: 1 }]}
+                      onPress={() => { setLicenseOfferedFee(licenseChainCounter!.feeM.toFixed(1)); setLicenseChainCounter(null); }}
+                      testID="counter-license-again">
+                      <Text style={[s.actionTxt, { color: T.cardDark }]}>Counter</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : null}
+
               <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
-                <TouchableOpacity style={[s.actionBtn, { backgroundColor: T.card, flex: 1 }]} onPress={() => { setLicenseMovieId(null); setLicenseExclusive(false); }}>
+                <TouchableOpacity style={[s.actionBtn, { backgroundColor: T.card, flex: 1 }]} onPress={() => { setLicenseMovieId(null); setLicenseExclusive(false); setLicenseChainCounter(null); setLicenseOfferedFee(''); setLicenseRound(1); }}>
                   <Text style={[s.actionTxt, { color: T.text }]}>Cancel</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[s.actionBtn, { backgroundColor: T.green, flex: 1 }]}
                   onPress={() => {
-                    const r = licenseMovieToStreaming(svc.id, { movieId: licenseMovieId!, yearsLicensed: licenseYears, tierIds: licenseTierIds, exclusivity: licenseExclusive });
-                    if (r.error) notify('Cannot license', r.error);
-                    else {
-                      notify('Licensed!', `${m.title} added for ${licenseYears} years${licenseExclusive ? ' (exclusive)' : ''}.`);
-                      setLicenseMovieId(null);
-                      setLicenseExclusive(false);
+                    const offered = parseFloat(licenseOfferedFee);
+                    if (!isNaN(offered) && offered > 0 && offered < fee) {
+                      // Negotiation path
+                      const r = negotiateMovieLicense(svc.id, { movieId: licenseMovieId!, yearsLicensed: licenseYears, tierIds: licenseTierIds, exclusivity: licenseExclusive, offeredFeeM: offered });
+                      if (r.error) { notify('Cannot negotiate', r.error); return; }
+                      if (r.accepted) {
+                        notify('Deal Signed!', `${m.title} licensed at your offer of $${offered.toFixed(1)}M.`);
+                        setLicenseMovieId(null); setLicenseExclusive(false); setLicenseChainCounter(null); setLicenseOfferedFee(''); setLicenseRound(1);
+                      } else if (r.counter) {
+                        setLicenseChainCounter(r.counter);
+                        setLicenseRound(licenseRound + 1);
+                      }
+                    } else {
+                      // Pay fair fee directly
+                      const r = licenseMovieToStreaming(svc.id, { movieId: licenseMovieId!, yearsLicensed: licenseYears, tierIds: licenseTierIds, exclusivity: licenseExclusive });
+                      if (r.error) notify('Cannot license', r.error);
+                      else {
+                        notify('Licensed!', `${m.title} added for ${licenseYears} years${licenseExclusive ? ' (exclusive)' : ''}.`);
+                        setLicenseMovieId(null); setLicenseExclusive(false); setLicenseChainCounter(null); setLicenseOfferedFee(''); setLicenseRound(1);
+                      }
                     }
                   }} testID="confirm-license-deal">
-                  <Text style={[s.actionTxt, { color: T.cardDark }]}>Sign Deal</Text>
+                  <Text style={[s.actionTxt, { color: T.cardDark }]}>{licenseOfferedFee && parseFloat(licenseOfferedFee) < fee ? 'Negotiate' : 'Sign Deal'}</Text>
                 </TouchableOpacity>
               </View>
             </View>

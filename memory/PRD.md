@@ -35,9 +35,7 @@ Offline film-studio tycoon game built with Expo Router + React Native. Players r
 6. **Crossovers now require licensing** — when crossover involves a rival's franchise, player pays a dynamically-priced fee = 25M × popMult × ratingMult × depthMult to the franchise owner. Preview shown in create-movie summary; rival cash credited; news log entry generated.
 
 ## Known follow-ups (next iteration if requested)
-- Full negotiation UI (counter price + exclusivity rounds) for: streaming licenses, cinema deals, franchise quick-licenses. Currently uses fixed-fee with exclusivity flag instead of multi-round counter.
-- Cinema deal negotiation (currently fixed terms).
-- Movie creator inline talent picker reusing the talent-pool negotiation flow.
+- Multi-round counter UI with full price+exclusivity rounds spread across **bulk catalog packs** and **franchise quick-licenses** (currently only IP, streaming licenses and cinema deals have it).
 
 ## New / Updated Functions
 - `addMovieToStreaming(state, serviceId, movieId, tierIds?)` — accepts optional tierIds for per-movie gating.
