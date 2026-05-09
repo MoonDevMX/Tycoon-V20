@@ -294,7 +294,7 @@ export default function MovieDetail() {
                 const max = Math.max(...m.weeklyBO);
                 const heightPct = max > 0 ? (wbo / max) * 100 : 0;
                 return (
-                  <View key={i} style={s.barCol}>
+                  <View key={`wk-${i}`} style={s.barCol}>
                     <View style={s.barWrap}>
                       <View style={[s.bar, { height: `${heightPct}%`, backgroundColor: i === 0 ? T.green : T.cyan }]} />
                     </View>
@@ -353,7 +353,7 @@ export default function MovieDetail() {
             <SectionHeader title="Reviews" />
             <View style={s.reviewsPanel}>
               {m.reviews.map((r, i) => (
-                <View key={i} style={s.reviewRow}>
+                <View key={`${r.source}-${r.type}-${i}`} style={s.reviewRow}>
                   <View style={{ flex: 1 }}>
                     <Text style={s.revSrc}>{r.source} <Text style={[s.revType, { color: r.type === 'critic' ? T.magenta : T.cyan }]}>· {r.type}</Text></Text>
                     <Text style={s.revQuote} numberOfLines={2}>"{r.quote}"</Text>

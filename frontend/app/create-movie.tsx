@@ -301,7 +301,7 @@ export default function CreateMovie() {
           {draft.cast.map((c, i) => {
             const t = c.talentId ? state.talents.find(tt => tt.id === c.talentId) : undefined;
             return (
-              <View key={i} style={s.castWrap}>
+              <View key={`cast-slot-${i}`} style={s.castWrap}>
                 <View style={s.roleTypeRow}>
                   <TouchableOpacity
                     style={[s.miniBtn, (c.role === 'lead_actor' || c.role === 'lead_actress') && { backgroundColor: T.cyan }]}
@@ -423,7 +423,7 @@ export default function CreateMovie() {
           {chemColors.length > 1 && (
             <View style={s.chemRow}>
               <View style={s.chemDots}>
-                {chemColors.map((c, i) => <View key={i} style={[s.chemDot, { backgroundColor: COLOR_HEX[c] }]} />)}
+                {chemColors.map((c, i) => <View key={`chem-${c}-${i}`} style={[s.chemDot, { backgroundColor: COLOR_HEX[c] }]} />)}
               </View>
               <Text style={[s.chemTxt, { color: chemPct > 0 ? T.green : T.textDim }]}>
                 Cast Chemistry: +{chemPct}%

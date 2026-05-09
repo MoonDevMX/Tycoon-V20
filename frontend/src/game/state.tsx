@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { GameState, Talent, Gender, Movie } from './types';
 import { newGame, simulateWeek as simWeek, simulateMultiple as simMulti, tickWeek, createMovie as createMov, launchPlayerStreamingService as launchSvc, updatePlayerStreamingService as updateSvc, deletePlayerStreamingService as deleteSvc, addMovieToStreaming as addToStream, setMovieTierAccess as setTierAcc, removeMovieFromStreaming as removeFromStream, hireTalent as hireT, fireTalent as fireT, calculateTalentExpectations, calculateAcceptance, licenseMovieToStreaming as licenseStream, negotiateMovieLicense as negLicense, renewLicense as renewLic, setMovieReleaseDate as setRelDate, holdMovie as holdMov, setMarketingAllocation as setMktAlloc, computeLicenseFee, acceptLicenseOffer as acceptLO, counterLicenseOffer as counterLO, rejectLicenseOffer as rejectLO, signNegotiatedContract as signNeg, placeFestivalBid as bidFest, signCinemaDeal as signCine, setMovieDescription as setMovDesc, signBulkLicenseDeal as signBLD, quoteBulkLicenseDeal as quoteBLD, signFranchiseBulkLicense as signFBL, quoteFranchiseBulkLicense as quoteFBL, proposeFranchiseTrade as propFr, acceptFranchiseOffer as accFr, counterFranchiseOffer as cntFr, rejectFranchiseOffer as rejFr, quoteFranchiseValue as qFr, proposeBulkCatalogLicense as propBC, acceptBulkCatalogOffer as accBC, counterBulkCatalogOffer as cntBC, rejectBulkCatalogOffer as rejBC, quoteBulkCatalogValue as qBC, quoteFutureReleasesValueB as qFut, quoteFranchiseBulkValueB as qFrBulk, acceptIPOffer as accIP, counterIPOffer as cntIP, rejectIPOffer as rejIP, quoteIPOffer as qIP, createOutboundIPListing as createOL, acceptOutboundBid as accOB, rejectOutboundBid as rejOB, counterOutboundBid as cntOB, LaunchStreamingArgs, HireTalentArgs, LicenseMovieArgs, BulkLicenseDealParams, FranchiseBulkLicenseParams } from './sim';
 import { FranchiseOfferKind } from './types';
@@ -139,6 +139,12 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const [state, setStateInner] = useState<GameState | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // stateRef always holds the latest game state. Reading callbacks read from this ref so
+  // they don't need `state` in their useCallback deps — eliminates the entire class of
+  // stale-closure bugs and lets callbacks keep stable identities across renders.
+  const stateRef = useRef<GameState | null>(null);
+  useEffect(() => { stateRef.current = state; }, [state]);
+
   useEffect(() => {
     (async () => {
       try {
@@ -153,7 +159,11 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
                 await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(migrated));
                 raw = JSON.stringify(migrated);
                 break;
-              } catch { /* ignore bad legacy */ }
+              } catch (legacyErr) {
+                // Legacy save was malformed/unparseable — log and skip; we'll fall through
+                // to the next legacy key or start a fresh game.
+                console.warn('legacy migration failed for key', k, legacyErr);
+              }
             }
           }
         }
@@ -188,21 +198,21 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     setStateInner(null);
   }, []);
 
-  const save = useCallback(async () => { if (state) await persist(state); }, [state, persist]);
+  const save = useCallback(async () => { const cur = stateRef.current; if (cur) await persist(cur); }, [persist]);
 
   const simulateWeek = useCallback(() => {
-    if (!state) return;
+    const state = stateRef.current; if (!state) return;
     const next = tickWeek(state);
     setStateInner(next);
     persist(next);
-  }, [state, persist]);
+  }, [persist]);
 
   const simulateMultiple = useCallback((weeks: number) => {
-    if (!state) return;
+    const state = stateRef.current; if (!state) return;
     const next = simMulti(state, weeks);
     setStateInner(next);
     persist(next);
-  }, [state, persist]);
+  }, [persist]);
 
   const createMovie: typeof createMov = useCallback((s, args) => {
     const result = createMov(s, args);
@@ -214,141 +224,141 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   }, [persist]);
 
   const launchStreamingService = useCallback((args: LaunchStreamingArgs) => {
-    if (!state) return { error: 'No game.' };
+    const state = stateRef.current; if (!state) return { error: 'No game.' };
     const r = launchSvc(state, args);
     if (!r.error) {
       setStateInner(r.state);
       persist(r.state);
     }
     return { error: r.error };
-  }, [state, persist]);
+  }, [persist]);
 
   const updateStreamingService = useCallback((id: string, patch: Parameters<typeof updateSvc>[2]) => {
-    if (!state) return { error: 'No game.' };
+    const state = stateRef.current; if (!state) return { error: 'No game.' };
     const r = updateSvc(state, id, patch);
     if (!r.error) {
       setStateInner(r.state);
       persist(r.state);
     }
     return { error: r.error };
-  }, [state, persist]);
+  }, [persist]);
 
   const deleteStreamingService = useCallback((id: string) => {
-    if (!state) return { error: 'No game.' };
+    const state = stateRef.current; if (!state) return { error: 'No game.' };
     const r = deleteSvc(state, id);
     if (!r.error) {
       setStateInner(r.state);
       persist(r.state);
     }
     return { error: r.error };
-  }, [state, persist]);
+  }, [persist]);
 
   const addMovieToStreaming = useCallback((serviceId: string, movieId: string, tierIds?: string[]) => {
-    if (!state) return { error: 'No game.' };
+    const state = stateRef.current; if (!state) return { error: 'No game.' };
     const r = addToStream(state, serviceId, movieId, tierIds);
     if (!r.error) {
       setStateInner(r.state);
       persist(r.state);
     }
     return { error: r.error };
-  }, [state, persist]);
+  }, [persist]);
 
   const setMovieTierAccess = useCallback((serviceId: string, movieId: string, tierIds: string[]) => {
-    if (!state) return { error: 'No game.' };
+    const state = stateRef.current; if (!state) return { error: 'No game.' };
     const r = setTierAcc(state, serviceId, movieId, tierIds);
     if (!r.error) {
       setStateInner(r.state);
       persist(r.state);
     }
     return { error: r.error };
-  }, [state, persist]);
+  }, [persist]);
 
   const removeMovieFromStreaming = useCallback((serviceId: string, movieId: string) => {
-    if (!state) return;
+    const state = stateRef.current; if (!state) return;
     const r = removeFromStream(state, serviceId, movieId);
     setStateInner(r.state);
     persist(r.state);
-  }, [state, persist]);
+  }, [persist]);
 
   const hireTalent = useCallback((args: HireTalentArgs) => {
-    if (!state) return { error: 'No game.' };
+    const state = stateRef.current; if (!state) return { error: 'No game.' };
     const r = hireT(state, args);
     if (!r.error) {
       setStateInner(r.state);
       persist(r.state);
     }
     return { error: r.error, accepted: r.accepted };
-  }, [state, persist]);
+  }, [persist]);
 
   const fireTalent = useCallback((talentId: string) => {
-    if (!state) return { error: 'No game.' };
+    const state = stateRef.current; if (!state) return { error: 'No game.' };
     const r = fireT(state, talentId);
     if (!r.error) {
       setStateInner(r.state);
       persist(r.state);
     }
     return { error: r.error };
-  }, [state, persist]);
+  }, [persist]);
 
   const licenseMovieToStreaming = useCallback((serviceId: string, args: LicenseMovieArgs) => {
-    if (!state) return { error: 'No game.' };
+    const state = stateRef.current; if (!state) return { error: 'No game.' };
     const r = licenseStream(state, serviceId, args);
     if (!r.error) {
       setStateInner(r.state);
       persist(r.state);
     }
     return { error: r.error, fee: r.fee };
-  }, [state, persist]);
+  }, [persist]);
 
   const negotiateMovieLicense = useCallback((serviceId: string, args: LicenseMovieArgs & { offeredFeeM: number }) => {
-    if (!state) return { error: 'No game.' };
+    const state = stateRef.current; if (!state) return { error: 'No game.' };
     const r = negLicense(state, serviceId, args);
     if (r.accepted) {
       setStateInner(r.state);
       persist(r.state);
     }
     return { error: r.error, accepted: r.accepted, counter: r.counter };
-  }, [state, persist]);
+  }, [persist]);
 
   const renewLicense = useCallback((serviceId: string, movieId: string, additionalYears: 1 | 3 | 5 | 10) => {
-    if (!state) return { error: 'No game.' };
+    const state = stateRef.current; if (!state) return { error: 'No game.' };
     const r = renewLic(state, serviceId, movieId, additionalYears);
     if (!r.error) {
       setStateInner(r.state);
       persist(r.state);
     }
     return { error: r.error, fee: r.fee };
-  }, [state, persist]);
+  }, [persist]);
 
   const setMovieReleaseDate = useCallback((movieId: string, week: number, year: number) => {
-    if (!state) return { error: 'No game.' };
+    const state = stateRef.current; if (!state) return { error: 'No game.' };
     const r = setRelDate(state, movieId, week, year);
     if (!r.error) {
       setStateInner(r.state);
       persist(r.state);
     }
     return { error: r.error };
-  }, [state, persist]);
+  }, [persist]);
 
   const holdMovie = useCallback((movieId: string) => {
-    if (!state) return { error: 'No game.' };
+    const state = stateRef.current; if (!state) return { error: 'No game.' };
     const r = holdMov(state, movieId);
     if (!r.error) {
       setStateInner(r.state);
       persist(r.state);
     }
     return { error: r.error };
-  }, [state, persist]);
+  }, [persist]);
 
   const setMarketingAllocation = useCallback((movieId: string, allocation: Record<string, number>) => {
-    if (!state) return { error: 'No game.' };
+    const state = stateRef.current; if (!state) return { error: 'No game.' };
     const r = setMktAlloc(state, movieId, allocation);
     if (!r.error) {
       setStateInner(r.state);
       persist(r.state);
     }
     return { error: r.error };
-  }, [state, persist]);
+  }, [persist]);
 
   return (
     <GameCtx.Provider value={{
@@ -356,150 +366,150 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       launchStreamingService, updateStreamingService, deleteStreamingService, addMovieToStreaming, setMovieTierAccess, removeMovieFromStreaming,
       hireTalent, fireTalent, licenseMovieToStreaming, negotiateMovieLicense, renewLicense, setMovieReleaseDate, holdMovie, setMarketingAllocation,
       acceptOffer: (offerId: string) => {
-        if (!state) return { error: 'No game.' };
+        const state = stateRef.current; if (!state) return { error: 'No game.' };
         const r = acceptLO(state, offerId);
         if (!r.error) { setStateInner(r.state); persist(r.state); }
         return { error: r.error };
       },
       counterOffer: (offerId: string, fee: number) => {
-        if (!state) return { error: 'No game.' };
+        const state = stateRef.current; if (!state) return { error: 'No game.' };
         const r = counterLO(state, offerId, fee);
         if (!r.error) { setStateInner(r.state); persist(r.state); }
         return { error: r.error };
       },
       rejectOffer: (offerId: string) => {
-        if (!state) return { error: 'No game.' };
+        const state = stateRef.current; if (!state) return { error: 'No game.' };
         const r = rejectLO(state, offerId);
         if (!r.error) { setStateInner(r.state); persist(r.state); }
         return { error: r.error };
       },
       signNegotiated: (talentId: string, numMovies: number, upfront: number, boPercent: number) => {
-        if (!state) return { error: 'No game.' };
+        const state = stateRef.current; if (!state) return { error: 'No game.' };
         const r = signNeg(state, talentId, numMovies, upfront, boPercent);
         if (!r.error) { setStateInner(r.state); persist(r.state); }
         return { error: r.error };
       },
       placeFestivalBid: (festivalId: string, lotId: string, bidM: number) => {
-        if (!state) return { error: 'No game.' };
+        const state = stateRef.current; if (!state) return { error: 'No game.' };
         const r = bidFest(state, festivalId, lotId, bidM);
         if (!r.error) { setStateInner(r.state); persist(r.state); }
         return { error: r.error };
       },
       signCinemaDeal: (chainId: string, years: number, openShare: number, lateShare: number) => {
-        if (!state) return { error: 'No game.' };
+        const state = stateRef.current; if (!state) return { error: 'No game.' };
         const r = signCine(state, chainId, years, openShare, lateShare);
         if (!r.error && !r.counter) { setStateInner(r.state); persist(r.state); }
         else if (r.counter) { setStateInner(r.state); persist(r.state); } // newsLog updated even on counter
         return { error: r.error, counter: r.counter };
       },
       setMovieDescription: (movieId: string, description: string) => {
-        if (!state) return { error: 'No game.' };
+        const state = stateRef.current; if (!state) return { error: 'No game.' };
         const r = setMovDesc(state, movieId, description);
         if (!r.error) { setStateInner(r.state); persist(r.state); }
         return { error: r.error };
       },
       signBulkLicenseDeal: (p: BulkLicenseDealParams) => {
-        if (!state) return { error: 'No game.' };
+        const state = stateRef.current; if (!state) return { error: 'No game.' };
         const r = signBLD(state, p);
         if (!r.error) { setStateInner(r.state); persist(r.state); }
         return { error: r.error, feeM: r.feeM };
       },
       quoteBulkLicenseDeal: (p: BulkLicenseDealParams) => {
-        if (!state) return { feeM: 0, error: 'No game.' };
+        const state = stateRef.current; if (!state) return { feeM: 0, error: 'No game.' };
         return quoteBLD(state, p);
       },
       signFranchiseBulkLicense: (p: FranchiseBulkLicenseParams) => {
-        if (!state) return { error: 'No game.' };
+        const state = stateRef.current; if (!state) return { error: 'No game.' };
         const r = signFBL(state, p);
         if (!r.error) { setStateInner(r.state); persist(r.state); }
         return { error: r.error, feeM: r.feeM };
       },
       quoteFranchiseBulkLicense: (p: FranchiseBulkLicenseParams) => {
-        if (!state) return { feeM: 0, error: 'No game.' };
+        const state = stateRef.current; if (!state) return { feeM: 0, error: 'No game.' };
         return quoteFBL(state, p);
       },
       acceptIPOffer: (offerId: string) => {
-        if (!state) return { error: 'No game.' };
+        const state = stateRef.current; if (!state) return { error: 'No game.' };
         const r = accIP(state, offerId);
         if (!r.error) { setStateInner(r.state); persist(r.state); }
         return { error: r.error };
       },
       counterIPOffer: (offerId, terms) => {
-        if (!state) return { error: 'No game.' };
+        const state = stateRef.current; if (!state) return { error: 'No game.' };
         const r = cntIP(state, offerId, terms);
         if (!r.error) { setStateInner(r.state); persist(r.state); }
         return { error: r.error };
       },
       rejectIPOffer: (offerId: string) => {
-        if (!state) return;
+        const state = stateRef.current; if (!state) return;
         const r = rejIP(state, offerId);
         setStateInner(r.state); persist(r.state);
       },
       quoteIPOffer: (ipId, terms) => {
-        if (!state) return { feeM: 0, error: 'No game.' };
+        const state = stateRef.current; if (!state) return { feeM: 0, error: 'No game.' };
         return qIP(state, ipId, terms);
       },
       createOutboundIPListing: (args) => {
-        if (!state) return { error: 'No game.' };
+        const state = stateRef.current; if (!state) return { error: 'No game.' };
         const r = createOL(state, args);
         if (!r.error) { setStateInner(r.state); persist(r.state); }
         return { error: r.error, listingId: r.listingId };
       },
       acceptOutboundBid: (bidId: string) => {
-        if (!state) return { error: 'No game.' };
+        const state = stateRef.current; if (!state) return { error: 'No game.' };
         const r = accOB(state, bidId);
         if (!r.error) { setStateInner(r.state); persist(r.state); }
         return { error: r.error };
       },
       rejectOutboundBid: (bidId: string) => {
-        if (!state) return;
+        const state = stateRef.current; if (!state) return;
         const r = rejOB(state, bidId);
         setStateInner(r.state); persist(r.state);
       },
       proposeFranchiseTrade: (args) => {
-        if (!state) return { error: 'No game.' };
+        const state = stateRef.current; if (!state) return { error: 'No game.' };
         const r = propFr(state, args);
         if (!r.error) { setStateInner(r.state); persist(r.state); }
         return { error: r.error, offerId: r.offer?.id };
       },
       acceptFranchiseOffer: (offerId) => {
-        if (!state) return { error: 'No game.' };
+        const state = stateRef.current; if (!state) return { error: 'No game.' };
         const r = accFr(state, offerId);
         if (!r.error) { setStateInner(r.state); persist(r.state); }
         return { error: r.error };
       },
       counterFranchiseOffer: (offerId, newPriceB) => {
-        if (!state) return { error: 'No game.' };
+        const state = stateRef.current; if (!state) return { error: 'No game.' };
         const r = cntFr(state, offerId, newPriceB);
         if (!r.error) { setStateInner(r.state); persist(r.state); }
         return { error: r.error };
       },
       rejectFranchiseOffer: (offerId) => {
-        if (!state) return;
+        const state = stateRef.current; if (!state) return;
         const r = rejFr(state, offerId);
         setStateInner(r.state); persist(r.state);
       },
       quoteFranchiseValue: (franchiseId) => state ? qFr(state, franchiseId) : 0,
       proposeBulkCatalogLicense: (args) => {
-        if (!state) return { error: 'No game.' };
+        const state = stateRef.current; if (!state) return { error: 'No game.' };
         const r = propBC(state, { ...args });
         if (!r.error) { setStateInner(r.state); persist(r.state); }
         return { error: r.error, offerId: r.offer?.id };
       },
       acceptBulkCatalogOffer: (offerId) => {
-        if (!state) return { error: 'No game.' };
+        const state = stateRef.current; if (!state) return { error: 'No game.' };
         const r = accBC(state, offerId);
         if (!r.error) { setStateInner(r.state); persist(r.state); }
         return { error: r.error };
       },
       counterBulkCatalogOffer: (offerId, newPriceB) => {
-        if (!state) return { error: 'No game.' };
+        const state = stateRef.current; if (!state) return { error: 'No game.' };
         const r = cntBC(state, offerId, newPriceB);
         if (!r.error) { setStateInner(r.state); persist(r.state); }
         return { error: r.error };
       },
       rejectBulkCatalogOffer: (offerId) => {
-        if (!state) return;
+        const state = stateRef.current; if (!state) return;
         const r = rejBC(state, offerId);
         setStateInner(r.state); persist(r.state);
       },
@@ -507,7 +517,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
       quoteFutureReleasesValueB: (rivalStudioId, movieCount, years) => state ? qFut(state, rivalStudioId, movieCount, years) : 0,
       quoteFranchiseBulkValueB: (franchiseId, years) => state ? qFrBulk(state, franchiseId, years) : 0,
       counterOutboundBid: (bidId, terms) => {
-        if (!state) return { error: 'No game.' };
+        const state = stateRef.current; if (!state) return { error: 'No game.' };
         const r = cntOB(state, bidId, terms);
         if (!r.error) { setStateInner(r.state); persist(r.state); }
         return { error: r.error };

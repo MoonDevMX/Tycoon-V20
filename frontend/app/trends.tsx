@@ -92,8 +92,8 @@ export default function Trends() {
 
         <SectionHeader title="Audience Demographics & Preferences" />
         <View style={s.audienceBlock}>
-          {currentAudience.map((seg, idx) => (
-            <View key={idx} style={[s.segCard, { borderLeftColor: COLOR_HEX[seg.preferredColor] }]}>
+          {currentAudience.map((seg) => (
+            <View key={seg.label} style={[s.segCard, { borderLeftColor: COLOR_HEX[seg.preferredColor] }]}>
               <View style={s.segHead}>
                 <Text style={s.segName}>{seg.label}</Text>
                 <Text style={s.segShare}>{(seg.share * 100).toFixed(0)}%</Text>
@@ -120,8 +120,8 @@ export default function Trends() {
               {Object.keys(state.audienceYearlySnapshot).map(Number).sort().slice(-3).map(yr => (
                 <View key={yr} style={s.evoCard}>
                   <Text style={s.evoYear}>Year {yr} · Top genre per segment</Text>
-                  {(state.audienceYearlySnapshot![yr] || []).slice(0, 6).map((seg, i) => (
-                    <Text key={i} style={s.evoLine}>
+                  {(state.audienceYearlySnapshot![yr] || []).slice(0, 6).map((seg) => (
+                    <Text key={seg.label} style={s.evoLine}>
                       <Text style={{ color: T.text, fontWeight: '700' }}>{seg.label}</Text>
                       <Text style={{ color: T.textDim }}>: {seg.preferredGenres.slice(0, 2).join(' · ')}</Text>
                     </Text>

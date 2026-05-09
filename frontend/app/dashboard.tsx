@@ -276,7 +276,7 @@ export default function Dashboard() {
             <SectionHeader title="Industry News" />
             <View style={{ paddingHorizontal: 12 }}>
               {state.newsLog.slice(0, 6).map((n, i) => (
-                <View key={i} style={s.newsItem}>
+                <View key={`${n.year}-${n.week}-${i}`} style={s.newsItem}>
                   <Text style={s.newsTime}>W{n.week} Y{n.year}</Text>
                   <Text style={s.newsText}>{n.text}</Text>
                 </View>
@@ -308,8 +308,8 @@ export default function Dashboard() {
             </View>
             <Text style={[s.modalTitle, { fontSize: 18, marginTop: 12 }]}>{monthOf(week).name} W{monthOf(week).weekInMonth}, Year {year}</Text>
             <Text style={[s.modalTitle, { fontSize: 14, fontWeight: '700', color: T.cyan }]}>Upcoming Holidays</Text>
-            {nextHolidays(week, year, 3).map((h, i) => (
-              <View key={i} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4, paddingHorizontal: 8 }}>
+            {nextHolidays(week, year, 3).map((h) => (
+              <View key={`${h.h.name}-${h.weeksAway}`} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4, paddingHorizontal: 8 }}>
                 <Text style={{ color: T.text, fontWeight: '800' }}>{h.h.name}</Text>
                 <Text style={{ color: T.green }}>+{Math.round((h.h.mult - 1) * 100)}% · in {h.weeksAway}w</Text>
               </View>

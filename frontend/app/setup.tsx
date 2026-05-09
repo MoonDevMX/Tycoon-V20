@@ -58,7 +58,7 @@ export default function Setup() {
           <View style={s.logoGrid}>
             {STUDIO_LOGOS.map((l, i) => (
               <TouchableOpacity
-                key={i} onPress={() => setLogoIdx(i)}
+                key={`${l.icon}-${l.bg}`} onPress={() => setLogoIdx(i)}
                 style={[s.logoTile, { backgroundColor: l.bg }, logoIdx === i && { borderColor: T.cyan, borderWidth: 4 }]}
                 testID={`logo-${i}`}
               >

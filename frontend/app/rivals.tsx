@@ -134,8 +134,8 @@ export default function Rivals() {
                 <MaterialCommunityIcons name="package-variant" size={16} color={T.magenta} />
                 <Text style={[s.bulkTxt, { color: T.magenta }]}>Bulk Catalog Pack (Existing Films, ≥2y)</Text>
               </TouchableOpacity>
-              {activeBulks.length > 0 && activeBulks.map((ab, i) => (
-                <View key={i} style={s.activeBulkRow}>
+              {activeBulks.length > 0 && activeBulks.map((ab) => (
+                <View key={ab.d.id} style={s.activeBulkRow}>
                   <Text style={s.activeBulkTxt}>📋 {ab.svcName}: {ab.d.movieCountTotal - ab.d.moviesUsed} films left · expires Y{ab.d.expiresYear}</Text>
                 </View>
               ))}
